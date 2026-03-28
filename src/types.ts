@@ -1,0 +1,59 @@
+export interface Product {
+  id: string;
+  sku: string; // Mã Hàng
+  name: string; // Tên hàng
+  category: string;
+  unit: string;
+  minStock: number;
+  lotNo?: string;
+  ghiChu?: string;
+  designationCode?: string; // Mã chỉ định
+  loaiChiDinh?: string; // Loại chỉ định
+}
+
+export interface Transaction {
+  id: string;
+  productId: string;
+  type: 'inbound' | 'outbound';
+  quantity: number;
+  date: string;
+  partner: string;
+  loaiChiDinh?: string;
+  lotNo?: string;
+  ghiChu?: string;
+  designationCode?: string;
+}
+
+export interface Customer {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface DeliveryNoteItem {
+  id: string;
+  no: number;
+  ovnSaleOrder: string;
+  ovnProductionOrder: string;
+  item: string;
+  materialName: string;
+  unit: string;
+  qtyErp: number;
+  actualQty?: number;
+  lotNo: string;
+  actualIssuedQty?: number;
+  remark: string;
+  brand: string;
+  customerCode: string;
+  finalDestination: string;
+  noCode: string;
+  location: string;
+  stock: string;
+}
+
+export interface InventoryItem extends Product {
+  productId: string;
+  totalInbound: number;
+  totalOutbound: number;
+  currentStock: number;
+}

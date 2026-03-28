@@ -1,0 +1,5 @@
+{
+  "name": "Quản lý Kho Thông Minh",
+  "description": "Ứng dụng quản lý nhập kho, xuất kho và tồn kho với tính năng cập nhật dữ liệu từ file.",
+  "requestFramePermissions": []
+}
