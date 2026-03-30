@@ -72,3 +72,18 @@ CREATE POLICY "Public Access" ON products FOR ALL USING (true);
 CREATE POLICY "Public Access" ON transactions FOR ALL USING (true);
 CREATE POLICY "Public Access" ON customers FOR ALL USING (true);
 CREATE POLICY "Public Access" ON delivery_notes FOR ALL USING (true);
+
+-- Location Entries table
+CREATE TABLE location_entries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  qrcode TEXT,
+  sku TEXT,
+  partner TEXT,
+  date TIMESTAMPTZ,
+  location TEXT,
+  note TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE location_entries ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access" ON location_entries FOR ALL USING (true);

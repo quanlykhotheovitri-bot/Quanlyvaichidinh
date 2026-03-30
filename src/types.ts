@@ -57,3 +57,13 @@ export interface InventoryItem extends Product {
   totalOutbound: number;
   currentStock: number;
 }
+
+export interface LocationEntry {
+  id: string;
+  qrcode: string;
+  sku: string;
+  partner: string;
+  date: string;
+  location: string;
+  note: string;
+}

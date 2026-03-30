@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { Product, Transaction, Customer, DeliveryNoteItem } from '../types';
+import { Product, Transaction, Customer, DeliveryNoteItem, LocationEntry } from '../types';
 
 const CACHE_KEY_PREFIX = 'ortholite_cache_';
 
@@ -110,6 +110,28 @@ export const api = {
       const { error } = await supabase.from('delivery_notes').delete().neq('id', '');
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'delivery_notes');
+    }
+  },
+  locationEntries: {
+    async getAll(): Promise<LocationEntry[]> {
+      const cached = getCache<LocationEntry[]>('location_entries');
+      if (cached) return cached;
+
+      const { data, error } = await supabase.from('location_entries').select('*');
+      if (error) throw error;
+      
+      setCache('location_entries', data);
+      return data as LocationEntry[];
+    },
+    async upsert(entry: LocationEntry): Promise<void> {
+      const { error } = await supabase.from('location_entries').upsert(entry);
+      if (error) throw error;
+      localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
+    },
+    async delete(id: string): Promise<void> {
+      const { error } = await supabase.from('location_entries').delete().eq('id', id);
+      if (error) throw error;
+      localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
     }
   }
 };

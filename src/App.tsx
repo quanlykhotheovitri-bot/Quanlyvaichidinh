@@ -17,7 +17,8 @@ import {
   CheckSquare,
   Square,
   FileText,
-  Printer
+  Printer,
+  MapPin
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -34,7 +35,7 @@ import {
 } from 'recharts';
 
 import { cn } from './lib/utils';
-import { Product, Transaction, InventoryItem, Customer, DeliveryNoteItem } from './types';
+import { Product, Transaction, InventoryItem, Customer, DeliveryNoteItem, LocationEntry } from './types';
 import { INITIAL_PRODUCTS, INITIAL_TRANSACTIONS, INITIAL_CUSTOMERS } from './constants';
 import { api } from './lib/api';
 
@@ -42,16 +43,18 @@ import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 
-type Tab = 'dashboard' | 'inbound' | 'outbound' | 'inventory' | 'customers' | 'deliveryNote';
+type Tab = 'dashboard' | 'inbound' | 'outbound' | 'inventory' | 'customers' | 'deliveryNote' | 'location';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [customers, setCustomers] = useState<Customer[]>(INITIAL_CUSTOMERS);
+  const [locationEntries, setLocationEntries] = useState<LocationEntry[]>([]);
   const [deliveryNotes, setDeliveryNotes] = useState<DeliveryNoteItem[]>([]);
   const [savedDeliveryNotes, setSavedDeliveryNotes] = useState<{id: string, date: string, items: DeliveryNoteItem[]}[]>([]);
   const [deliveryNoteSubTab, setDeliveryNoteSubTab] = useState<'draft' | 'preview' | 'history'>('preview');
+  const [locationSubTab, setLocationSubTab] = useState<'input' | 'inventory'>('input');
   const [searchQuery, setSearchQuery] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -82,23 +85,42 @@ export default function App() {
 
   // Load data from Supabase on start
   React.useEffect(() => {
-    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+    const getValidUrl = (url: any): string => {
+      const placeholder = 'https://placeholder-project.supabase.co';
+      if (typeof url !== 'string') return placeholder;
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          return url;
+        }
+      } catch {
+        // Not a valid URL
+      }
+      return placeholder;
+    };
+
+    const supabaseUrl = getValidUrl(import.meta.env.VITE_SUPABASE_URL);
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+    if (!import.meta.env.VITE_SUPABASE_URL || !supabaseAnonKey || supabaseUrl.includes('placeholder')) {
       setIsSupabaseConfigured(false);
     }
 
     const loadData = async () => {
       try {
-        const [dbProducts, dbTransactions, dbCustomers, dbDeliveryNotes] = await Promise.all([
+        const [dbProducts, dbTransactions, dbCustomers, dbDeliveryNotes, dbLocationEntries] = await Promise.all([
           api.products.getAll(),
           api.transactions.getAll(),
           api.customers.getAll(),
-          api.deliveryNotes.getAll()
+          api.deliveryNotes.getAll(),
+          api.locationEntries.getAll()
         ]);
 
         if (dbProducts.length > 0) setProducts(dbProducts);
         if (dbTransactions.length > 0) setTransactions(dbTransactions);
         if (dbCustomers.length > 0) setCustomers(dbCustomers);
         if (dbDeliveryNotes.length > 0) setDeliveryNotes(dbDeliveryNotes);
+        if (dbLocationEntries.length > 0) setLocationEntries(dbLocationEntries);
       } catch (error) {
         console.error('Error loading data from Supabase:', error);
       }
@@ -291,6 +313,42 @@ export default function App() {
     setNewCustomer({ code: '', name: '' });
   };
 
+  const handleLocationImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const bstr = evt.target?.result;
+      const wb = XLSX.read(bstr, { type: 'binary' });
+      const wsname = wb.SheetNames[0];
+      const ws = wb.Sheets[wsname];
+      const data = XLSX.utils.sheet_to_json(ws);
+
+      const newEntries: LocationEntry[] = data.map((row: any) => ({
+        id: `loc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        qrcode: row['QR Code'] || row['qrcode'] || '',
+        sku: row['SKU'] || row['sku'] || '',
+        partner: row['Đối tác'] || row['partner'] || '',
+        date: row['Ngày'] || row['date'] || format(new Date(), 'dd/MM/yyyy'),
+        location: row['Vị trí'] || row['location'] || '',
+        note: row['Ghi chú'] || row['note'] || ''
+      }));
+
+      const updatedEntries = [...locationEntries, ...newEntries];
+      setLocationEntries(updatedEntries);
+      
+      try {
+        await Promise.all(newEntries.map(entry => api.locationEntries.upsert(entry)));
+      } catch (error) {
+        console.error('Error syncing location entries:', error);
+      }
+      
+      alert(`Đã nhập thành công ${newEntries.length} vị trí!`);
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const handleDelete = async (id: string, type: 'product' | 'transaction' | 'customer') => {
     try {
       if (type === 'product') {
@@ -417,6 +475,35 @@ export default function App() {
       c.code.toLowerCase().includes(query)
     );
   }, [customers, searchQuery]);
+
+  const filteredLocationEntries = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+    return locationEntries.filter(entry => 
+      entry.sku.toLowerCase().includes(query) ||
+      entry.partner.toLowerCase().includes(query) ||
+      entry.location.toLowerCase().includes(query) ||
+      entry.qrcode.toLowerCase().includes(query)
+    );
+  }, [locationEntries, searchQuery]);
+
+  const locationStock = useMemo(() => {
+    const stockMap: Record<string, { sku: string, partner: string, location: string, count: number }> = {};
+    
+    locationEntries.forEach(entry => {
+      const key = `${entry.sku}-${entry.location}`;
+      if (!stockMap[key]) {
+        stockMap[key] = {
+          sku: entry.sku,
+          partner: entry.partner,
+          location: entry.location,
+          count: 0
+        };
+      }
+      stockMap[key].count += 1;
+    });
+    
+    return Object.values(stockMap);
+  }, [locationEntries]);
 
   const parseDate = useCallback((dateStr: string) => {
     // Try dd/MM/yyyy first
@@ -1087,6 +1174,12 @@ export default function App() {
             onClick={() => setActiveTab('deliveryNote')}
             icon={<FileText size={18} />}
             label="Lệnh xuất kho"
+          />
+          <NavItem 
+            active={activeTab === 'location'} 
+            onClick={() => setActiveTab('location')}
+            icon={<MapPin size={18} />}
+            label="Vị Trí"
           />
         </nav>
 
@@ -2141,6 +2234,149 @@ export default function App() {
                         </div>
                       ))
                     )}
+                  </div>
+                )}
+              </motion.div>
+            )}
+            {activeTab === 'location' && (
+              <motion.div 
+                key="location"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                <div className="flex justify-between items-center no-print">
+                  <div className="flex items-center gap-6">
+                    <h2 className="font-serif italic text-2xl">Quản lý Vị Trí</h2>
+                    <div className="flex border-b border-gray-200">
+                      <button
+                        onClick={() => setLocationSubTab('input')}
+                        className={cn(
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2",
+                          locationSubTab === 'input' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
+                        )}
+                      >
+                        NHẬP VỊ TRÍ
+                      </button>
+                      <button
+                        onClick={() => setLocationSubTab('inventory')}
+                        className={cn(
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2",
+                          locationSubTab === 'inventory' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
+                        )}
+                      >
+                        TỒN VỊ TRÍ
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    {locationSubTab === 'input' && (
+                      <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex items-center gap-2 px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                      >
+                        <FileUp size={14} />
+                        Nhập Excel
+                      </button>
+                    )}
+                    <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      onChange={handleLocationImport} 
+                      className="hidden" 
+                      accept=".xlsx, .xls, .csv"
+                    />
+                  </div>
+                </div>
+
+                {locationSubTab === 'input' && (
+                  <div className="border border-[#141414] overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
+                          <th className="border border-[#141414] p-3 text-left">QR Code</th>
+                          <th className="border border-[#141414] p-3 text-left">SKU</th>
+                          <th className="border border-[#141414] p-3 text-left">Đối tác</th>
+                          <th className="border border-[#141414] p-3 text-left">Ngày</th>
+                          <th className="border border-[#141414] p-3 text-left">Vị trí</th>
+                          <th className="border border-[#141414] p-3 text-left">Ghi chú</th>
+                          <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
+                            Thao tác
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredLocationEntries.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="border border-[#141414] p-8 text-center italic text-gray-400">
+                              Chưa có dữ liệu vị trí. Hãy nhập file Excel.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredLocationEntries.map(entry => (
+                            <tr key={entry.id} className="bg-white text-xs hover:bg-gray-50 transition-colors">
+                              <td className="border border-[#141414] p-3 font-mono">{entry.qrcode}</td>
+                              <td className="border border-[#141414] p-3 font-bold">{entry.sku}</td>
+                              <td className="border border-[#141414] p-3">{entry.partner}</td>
+                              <td className="border border-[#141414] p-3">{entry.date}</td>
+                              <td className="border border-[#141414] p-3 font-bold text-blue-600">{entry.location}</td>
+                              <td className="border border-[#141414] p-3 italic">{entry.note}</td>
+                              <td className="border border-[#141414] p-3 text-center">
+                                <button 
+                                  onClick={async () => {
+                                    if (confirm('Bạn có chắc chắn muốn xóa vị trí này?')) {
+                                      setLocationEntries(prev => prev.filter(e => e.id !== entry.id));
+                                      try {
+                                        await api.locationEntries.delete(entry.id);
+                                      } catch (err) {
+                                        console.error('Error deleting location entry:', err);
+                                      }
+                                    }
+                                  }}
+                                  className="p-1 hover:bg-gray-200 rounded transition-colors"
+                                >
+                                  <Trash2 size={14} className="text-red-600" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {locationSubTab === 'inventory' && (
+                  <div className="border border-[#141414] overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
+                          <th className="border border-[#141414] p-3 text-left">SKU</th>
+                          <th className="border border-[#141414] p-3 text-left">Đối tác</th>
+                          <th className="border border-[#141414] p-3 text-left">Vị trí</th>
+                          <th className="border border-[#141414] p-3 text-center bg-yellow-400 text-[#141414] font-bold">Số lượng (Cuộn/Kiện)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {locationStock.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="border border-[#141414] p-8 text-center italic text-gray-400">
+                              Không có dữ liệu tồn theo vị trí.
+                            </td>
+                          </tr>
+                        ) : (
+                          locationStock.map((stock, idx) => (
+                            <tr key={idx} className="bg-white text-xs hover:bg-gray-50 transition-colors">
+                              <td className="border border-[#141414] p-3 font-bold">{stock.sku}</td>
+                              <td className="border border-[#141414] p-3">{stock.partner}</td>
+                              <td className="border border-[#141414] p-3 font-bold text-blue-600">{stock.location}</td>
+                              <td className="border border-[#141414] p-3 text-center font-mono font-bold">{stock.count}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </motion.div>
