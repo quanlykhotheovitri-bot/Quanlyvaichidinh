@@ -133,5 +133,27 @@ export const api = {
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
     }
+  },
+  savedDeliveryNotes: {
+    async getAll(): Promise<{id: string, date: string, items: DeliveryNoteItem[]}[]> {
+      const cached = getCache<{id: string, date: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes');
+      if (cached) return cached;
+
+      const { data, error } = await supabase.from('saved_delivery_notes').select('*');
+      if (error) throw error;
+      
+      setCache('saved_delivery_notes', data);
+      return data as {id: string, date: string, items: DeliveryNoteItem[]}[];
+    },
+    async upsert(note: {id: string, date: string, items: DeliveryNoteItem[]}): Promise<void> {
+      const { error } = await supabase.from('saved_delivery_notes').upsert(note);
+      if (error) throw error;
+      localStorage.removeItem(CACHE_KEY_PREFIX + 'saved_delivery_notes');
+    },
+    async delete(id: string): Promise<void> {
+      const { error } = await supabase.from('saved_delivery_notes').delete().eq('id', id);
+      if (error) throw error;
+      localStorage.removeItem(CACHE_KEY_PREFIX + 'saved_delivery_notes');
+    }
   }
 };

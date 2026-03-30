@@ -70,7 +70,7 @@ export default function App() {
   const [isDeliveryNoteEditModalOpen, setIsDeliveryNoteEditModalOpen] = useState(false);
   const [editingDeliveryNoteId, setEditingDeliveryNoteId] = useState<string | null>(null);
   const [tempDeliveryNoteItem, setTempDeliveryNoteItem] = useState<Partial<DeliveryNoteItem>>({});
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk', type: 'product' | 'transaction' | 'customer' } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk', type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote' } | null>(null);
   const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(true);
 
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
@@ -108,12 +108,13 @@ export default function App() {
 
     const loadData = async () => {
       try {
-        const [dbProducts, dbTransactions, dbCustomers, dbDeliveryNotes, dbLocationEntries] = await Promise.all([
+        const [dbProducts, dbTransactions, dbCustomers, dbDeliveryNotes, dbLocationEntries, dbSavedDeliveryNotes] = await Promise.all([
           api.products.getAll(),
           api.transactions.getAll(),
           api.customers.getAll(),
           api.deliveryNotes.getAll(),
-          api.locationEntries.getAll()
+          api.locationEntries.getAll(),
+          api.savedDeliveryNotes.getAll()
         ]);
 
         if (dbProducts.length > 0) setProducts(dbProducts);
@@ -121,6 +122,7 @@ export default function App() {
         if (dbCustomers.length > 0) setCustomers(dbCustomers);
         if (dbDeliveryNotes.length > 0) setDeliveryNotes(dbDeliveryNotes);
         if (dbLocationEntries.length > 0) setLocationEntries(dbLocationEntries);
+        if (dbSavedDeliveryNotes.length > 0) setSavedDeliveryNotes(dbSavedDeliveryNotes);
       } catch (error) {
         console.error('Error loading data from Supabase:', error);
       }
@@ -210,30 +212,28 @@ export default function App() {
     });
 
     if (newTransactions.length > 0) {
-      const updatedTransactions = [...transactions, ...newTransactions];
-      setTransactions(updatedTransactions);
-      setSavedDeliveryNotes(prev => [
-        ...prev,
-        {
-          id: `dn-saved-${Date.now()}`,
-          date: today,
-          items: [...deliveryNotes]
-        }
-      ]);
+      const today = format(new Date(), 'dd/MM/yyyy');
+      const newSavedNote = {
+        id: `dn-saved-${Date.now()}`,
+        date: today,
+        items: [...deliveryNotes]
+      };
+
+      setTransactions(prev => [...prev, ...newTransactions]);
+      setSavedDeliveryNotes(prev => [...prev, newSavedNote]);
       setDeliveryNotes([]);
       
       try {
         await Promise.all([
           ...newTransactions.map(t => api.transactions.upsert(t)),
+          api.savedDeliveryNotes.upsert(newSavedNote),
           api.deliveryNotes.deleteAll()
         ]);
       } catch (error) {
         console.error('Error syncing post delivery note:', error);
       }
-      
-      alert('Đã post xuất kho và lưu phiếu thành công!');
     } else {
-      alert('Không có dữ liệu thực tế để xuất kho!');
+      console.warn('Không có dữ liệu thực tế để xuất kho!');
     }
   };
 
@@ -343,13 +343,11 @@ export default function App() {
       } catch (error) {
         console.error('Error syncing location entries:', error);
       }
-      
-      alert(`Đã nhập thành công ${newEntries.length} vị trí!`);
     };
     reader.readAsBinaryString(file);
   };
 
-  const handleDelete = async (id: string, type: 'product' | 'transaction' | 'customer') => {
+  const handleDelete = async (id: string, type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote') => {
     try {
       if (type === 'product') {
         await api.products.delete(id);
@@ -362,6 +360,14 @@ export default function App() {
       if (type === 'customer') {
         await api.customers.delete(id);
         setCustomers(customers.filter(c => c.id !== id));
+      }
+      if (type === 'location') {
+        await api.locationEntries.delete(id);
+        setLocationEntries(locationEntries.filter(e => e.id !== id));
+      }
+      if (type === 'savedDeliveryNote') {
+        await api.savedDeliveryNotes.delete(id);
+        setSavedDeliveryNotes(savedDeliveryNotes.filter(n => n.id !== id));
       }
     } catch (error) {
       console.error('Error syncing deletion:', error);
@@ -2222,9 +2228,8 @@ export default function App() {
                             </button>
                             <button 
                               onClick={() => {
-                                if (confirm('Bạn có chắc chắn muốn xóa phiếu này khỏi lịch sử?')) {
-                                  setSavedDeliveryNotes(prev => prev.filter(n => n.id !== note.id));
-                                }
+                                setDeleteTarget({ id: note.id, type: 'savedDeliveryNote' });
+                                setIsDeleteConfirmOpen(true);
                               }}
                               className="px-4 py-2 border border-red-600 text-red-600 text-[10px] font-bold uppercase tracking-wider hover:bg-red-600 hover:text-white transition-colors"
                             >
@@ -2295,10 +2300,10 @@ export default function App() {
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
-                          <th className="border border-[#141414] p-3 text-left">QR Code</th>
-                          <th className="border border-[#141414] p-3 text-left">SKU</th>
-                          <th className="border border-[#141414] p-3 text-left">Đối tác</th>
-                          <th className="border border-[#141414] p-3 text-left">Ngày</th>
+                          <th className="border border-[#141414] p-3 text-left">QRCODE</th>
+                          <th className="border border-[#141414] p-3 text-left">Mã</th>
+                          <th className="border border-[#141414] p-3 text-left">NCC</th>
+                          <th className="border border-[#141414] p-3 text-left">NGÀY</th>
                           <th className="border border-[#141414] p-3 text-left">Vị trí</th>
                           <th className="border border-[#141414] p-3 text-left">Ghi chú</th>
                           <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
@@ -2324,15 +2329,9 @@ export default function App() {
                               <td className="border border-[#141414] p-3 italic">{entry.note}</td>
                               <td className="border border-[#141414] p-3 text-center">
                                 <button 
-                                  onClick={async () => {
-                                    if (confirm('Bạn có chắc chắn muốn xóa vị trí này?')) {
-                                      setLocationEntries(prev => prev.filter(e => e.id !== entry.id));
-                                      try {
-                                        await api.locationEntries.delete(entry.id);
-                                      } catch (err) {
-                                        console.error('Error deleting location entry:', err);
-                                      }
-                                    }
+                                  onClick={() => {
+                                    setDeleteTarget({ id: entry.id, type: 'location' });
+                                    setIsDeleteConfirmOpen(true);
                                   }}
                                   className="p-1 hover:bg-gray-200 rounded transition-colors"
                                 >
@@ -2352,8 +2351,8 @@ export default function App() {
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
-                          <th className="border border-[#141414] p-3 text-left">SKU</th>
-                          <th className="border border-[#141414] p-3 text-left">Đối tác</th>
+                          <th className="border border-[#141414] p-3 text-left">Mã</th>
+                          <th className="border border-[#141414] p-3 text-left">NCC</th>
                           <th className="border border-[#141414] p-3 text-left">Vị trí</th>
                           <th className="border border-[#141414] p-3 text-center bg-yellow-400 text-[#141414] font-bold">Số lượng (Cuộn/Kiện)</th>
                         </tr>

@@ -87,3 +87,14 @@ CREATE TABLE location_entries (
 
 ALTER TABLE location_entries ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public Access" ON location_entries FOR ALL USING (true);
+
+-- Saved Delivery Notes table
+CREATE TABLE saved_delivery_notes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  date TEXT NOT NULL,
+  items JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE saved_delivery_notes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access" ON saved_delivery_notes FOR ALL USING (true);
