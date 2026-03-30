@@ -54,8 +54,15 @@ export default function App() {
   const [locationInventoryEntries, setLocationInventoryEntries] = useState<LocationEntry[]>([]);
   const [deliveryNotes, setDeliveryNotes] = useState<DeliveryNoteItem[]>([]);
   const [savedDeliveryNotes, setSavedDeliveryNotes] = useState<{id: string, date: string, items: DeliveryNoteItem[]}[]>([]);
+  const [deliveryNoteHeader, setDeliveryNoteHeader] = useState({
+    documentCode: 'WH.F-004/P-01',
+    dept: 'SX 5',
+    to: '',
+    date: format(new Date(), 'dd/MM/yyyy')
+  });
   const [deliveryNoteSubTab, setDeliveryNoteSubTab] = useState<'draft' | 'preview' | 'history'>('preview');
   const [locationSubTab, setLocationSubTab] = useState<'input' | 'inventory'>('input');
+  const [locationSearch, setLocationSearch] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -71,6 +78,10 @@ export default function App() {
   const [isDeliveryNoteEditModalOpen, setIsDeliveryNoteEditModalOpen] = useState(false);
   const [editingDeliveryNoteId, setEditingDeliveryNoteId] = useState<string | null>(null);
   const [tempDeliveryNoteItem, setTempDeliveryNoteItem] = useState<Partial<DeliveryNoteItem>>({});
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [newLocationEntry, setNewLocationEntry] = useState<Partial<LocationEntry>>({
+    qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: ''
+  });
   const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk', type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote' } | null>(null);
   const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(true);
 
@@ -317,6 +328,40 @@ export default function App() {
     setNewCustomer({ code: '', name: '' });
   };
 
+  const handleLocationSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    let updatedEntry: LocationEntry;
+    if (editingId) {
+      updatedEntry = { ...newLocationEntry, id: editingId, type: locationSubTab } as LocationEntry;
+      if (locationSubTab === 'input') {
+        setLocationEntries(locationEntries.map(entry => entry.id === editingId ? updatedEntry : entry));
+      } else {
+        setLocationInventoryEntries(locationInventoryEntries.map(entry => entry.id === editingId ? updatedEntry : entry));
+      }
+      setEditingId(null);
+    } else {
+      updatedEntry = {
+        ...newLocationEntry as LocationEntry,
+        id: `loc-${Date.now()}`,
+        type: locationSubTab
+      };
+      if (locationSubTab === 'input') {
+        setLocationEntries([...locationEntries, updatedEntry]);
+      } else {
+        setLocationInventoryEntries([...locationInventoryEntries, updatedEntry]);
+      }
+    }
+    
+    try {
+      await api.locationEntries.upsert(updatedEntry);
+    } catch (error) {
+      console.error('Error syncing location entry:', error);
+    }
+    
+    setIsLocationModalOpen(false);
+    setNewLocationEntry({ qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: '' });
+  };
+
   const processLocationData = async (data: any[]) => {
     const entries: any[] = data.map((row: any) => {
       // Normalize row keys
@@ -504,24 +549,26 @@ export default function App() {
   }, [customers, searchQuery]);
 
   const filteredLocationEntries = useMemo(() => {
-    const query = searchQuery.toLowerCase();
+    const query = locationSearch.toLowerCase();
     return locationEntries.filter(entry => 
       entry.sku.toLowerCase().includes(query) ||
       entry.partner.toLowerCase().includes(query) ||
       entry.location.toLowerCase().includes(query) ||
-      entry.qrcode.toLowerCase().includes(query)
+      entry.qrcode.toLowerCase().includes(query) ||
+      entry.note.toLowerCase().includes(query)
     );
-  }, [locationEntries, searchQuery]);
+  }, [locationEntries, locationSearch]);
 
   const filteredLocationInventoryEntries = useMemo(() => {
-    const query = searchQuery.toLowerCase();
+    const query = locationSearch.toLowerCase();
     return locationInventoryEntries.filter(entry => 
       entry.sku.toLowerCase().includes(query) ||
       entry.partner.toLowerCase().includes(query) ||
       entry.location.toLowerCase().includes(query) ||
-      entry.qrcode.toLowerCase().includes(query)
+      entry.qrcode.toLowerCase().includes(query) ||
+      entry.note.toLowerCase().includes(query)
     );
-  }, [locationInventoryEntries, searchQuery]);
+  }, [locationInventoryEntries, locationSearch]);
 
   const parseDate = useCallback((dateStr: string) => {
     // Try dd/MM/yyyy first
@@ -1895,22 +1942,6 @@ export default function App() {
                           { width: 10 }  // STOCK
                         ];
 
-                        // Add Logo
-                        try {
-                          const response = await fetch('https://www.ortholite.com/wp-content/uploads/2020/08/ortholite-logo.png');
-                          const arrayBuffer = await response.arrayBuffer();
-                          const logoId = workbook.addImage({
-                            buffer: arrayBuffer,
-                            extension: 'png',
-                          });
-                          worksheet.addImage(logoId, {
-                            tl: { col: 0, row: 0 },
-                            ext: { width: 100, height: 40 }
-                          });
-                        } catch (error) {
-                          console.error('Error adding logo to Excel:', error);
-                        }
-
                         // Title
                         const titleRow = worksheet.addRow(['', 'PHIẾU GIAO NHẬN FABRIC']);
                         titleRow.getCell(2).font = { name: 'Times New Roman', size: 16, bold: true };
@@ -1925,12 +1956,14 @@ export default function App() {
                         worksheet.addRow([]); // Empty row
 
                         // Metadata
-                        const meta1 = worksheet.addRow(['Mã Tài Liệu:', 'WH.F-004/P-01']);
+                        const meta1 = worksheet.addRow(['Mã Tài Liệu:', deliveryNoteHeader.documentCode]);
                         meta1.getCell(1).font = { bold: true };
-                        const meta2 = worksheet.addRow(['Dept:', 'SX 5']);
+                        const meta2 = worksheet.addRow(['Dept:', deliveryNoteHeader.dept]);
                         meta2.getCell(1).font = { bold: true };
-                        const meta3 = worksheet.addRow(['Date:', format(new Date(), 'dd/MM/yyyy')]);
+                        const meta3 = worksheet.addRow(['TO:', deliveryNoteHeader.to]);
                         meta3.getCell(1).font = { bold: true };
+                        const meta4 = worksheet.addRow(['Date:', deliveryNoteHeader.date]);
+                        meta4.getCell(1).font = { bold: true };
 
                         worksheet.addRow([]); // Empty row before table
 
@@ -2102,34 +2135,49 @@ export default function App() {
                 {deliveryNoteSubTab === 'preview' && (
                   <div className="bg-white border border-[#141414] p-8 shadow-sm">
                   {/* Header Template */}
-                  <div className="flex justify-between items-start mb-8">
-                    <div className="w-32 h-12 flex items-center justify-center">
-                      <img 
-                        src="https://www.ortholite.com/wp-content/uploads/2020/08/ortholite-logo.png" 
-                        alt="Ortholite Logo" 
-                        className="max-h-full max-w-full object-contain"
-                        referrerPolicy="no-referrer"
-                      />
-                    </div>
+                  <div className="flex justify-center items-start mb-8">
                     <div className="text-center flex-1">
                       <h1 className="text-xl font-bold uppercase tracking-widest">Phiếu giao nhận Fabric</h1>
                       <p className="text-sm italic">Delivery Note</p>
                     </div>
-                    <div className="w-32"></div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-x-12 gap-y-2 mb-8 text-xs">
                     <div className="grid grid-cols-3 border-b border-gray-200 py-1">
                       <span className="font-bold">Mã Tài Liệu:</span>
-                      <span className="col-span-2">WH.F-004/P-01</span>
+                      <input 
+                        type="text" 
+                        value={deliveryNoteHeader.documentCode} 
+                        onChange={(e) => setDeliveryNoteHeader({...deliveryNoteHeader, documentCode: e.target.value})}
+                        className="col-span-2 border-none focus:ring-0 p-0 bg-transparent"
+                      />
                     </div>
                     <div className="grid grid-cols-3 border-b border-gray-200 py-1">
                       <span className="font-bold">Dept:</span>
-                      <span className="col-span-2">SX 5</span>
+                      <input 
+                        type="text" 
+                        value={deliveryNoteHeader.dept} 
+                        onChange={(e) => setDeliveryNoteHeader({...deliveryNoteHeader, dept: e.target.value})}
+                        className="col-span-2 border-none focus:ring-0 p-0 bg-transparent"
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 border-b border-gray-200 py-1">
+                      <span className="font-bold">TO:</span>
+                      <input 
+                        type="text" 
+                        value={deliveryNoteHeader.to} 
+                        onChange={(e) => setDeliveryNoteHeader({...deliveryNoteHeader, to: e.target.value})}
+                        className="col-span-2 border-none focus:ring-0 p-0 bg-transparent"
+                      />
                     </div>
                     <div className="grid grid-cols-3 border-b border-gray-200 py-1">
                       <span className="font-bold">Date:</span>
-                      <span className="col-span-2">{format(new Date(), 'dd/MM/yyyy')}</span>
+                      <input 
+                        type="text" 
+                        value={deliveryNoteHeader.date} 
+                        onChange={(e) => setDeliveryNoteHeader({...deliveryNoteHeader, date: e.target.value})}
+                        className="col-span-2 border-none focus:ring-0 p-0 bg-transparent"
+                      />
                     </div>
                   </div>
 
@@ -2389,8 +2437,29 @@ export default function App() {
                         TỒN VỊ TRÍ
                       </button>
                     </div>
+                    <div className="relative ml-4">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                      <input 
+                        type="text" 
+                        placeholder="Tìm kiếm vị trí, mã hàng..."
+                        value={locationSearch}
+                        onChange={(e) => setLocationSearch(e.target.value)}
+                        className="pl-9 pr-4 py-2 bg-white border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-64"
+                      />
+                    </div>
                   </div>
                   <div className="flex gap-3">
+                    <button 
+                      onClick={() => {
+                        setEditingId(null);
+                        setNewLocationEntry({ qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: '' });
+                        setIsLocationModalOpen(true);
+                      }}
+                      className="flex items-center gap-2 px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                    >
+                      <Plus size={14} />
+                      Thêm vị trí
+                    </button>
                     <button 
                       onClick={() => fileInputRef.current?.click()}
                       className="flex items-center gap-2 px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
@@ -2434,15 +2503,27 @@ export default function App() {
                               <td className="border border-[#141414] p-3 font-bold text-blue-600">{entry.location}</td>
                               <td className="border border-[#141414] p-3 italic">{entry.note}</td>
                               <td className="border border-[#141414] p-3 text-center">
-                                <button 
-                                  onClick={() => {
-                                    setDeleteTarget({ id: entry.id, type: 'location' });
-                                    setIsDeleteConfirmOpen(true);
-                                  }}
-                                  className="p-1 hover:bg-gray-200 rounded transition-colors"
-                                >
-                                  <Trash2 size={14} className="text-red-600" />
-                                </button>
+                                <div className="flex items-center justify-center gap-2">
+                                  <button 
+                                    onClick={() => {
+                                      setEditingId(entry.id);
+                                      setNewLocationEntry({ ...entry });
+                                      setIsLocationModalOpen(true);
+                                    }}
+                                    className="p-1 hover:bg-gray-200 rounded transition-colors text-blue-600"
+                                  >
+                                    <Edit2 size={14} />
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      setDeleteTarget({ id: entry.id, type: 'location' });
+                                      setIsDeleteConfirmOpen(true);
+                                    }}
+                                    className="p-1 hover:bg-gray-200 rounded transition-colors text-red-600"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))
@@ -2485,15 +2566,27 @@ export default function App() {
                               <td className="border border-[#141414] p-3 font-bold text-blue-600">{entry.location}</td>
                               <td className="border border-[#141414] p-3 italic">{entry.note}</td>
                               <td className="border border-[#141414] p-3 text-center">
-                                <button 
-                                  onClick={() => {
-                                    setDeleteTarget({ id: entry.id, type: 'location' });
-                                    setIsDeleteConfirmOpen(true);
-                                  }}
-                                  className="p-1 hover:bg-gray-200 rounded transition-colors"
-                                >
-                                  <Trash2 size={14} className="text-red-600" />
-                                </button>
+                                <div className="flex items-center justify-center gap-2">
+                                  <button 
+                                    onClick={() => {
+                                      setEditingId(entry.id);
+                                      setNewLocationEntry({ ...entry });
+                                      setIsLocationModalOpen(true);
+                                    }}
+                                    className="p-1 hover:bg-gray-200 rounded transition-colors text-blue-600"
+                                  >
+                                    <Edit2 size={14} />
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      setDeleteTarget({ id: entry.id, type: 'location' });
+                                      setIsDeleteConfirmOpen(true);
+                                    }}
+                                    className="p-1 hover:bg-gray-200 rounded transition-colors text-red-600"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))
@@ -2507,6 +2600,115 @@ export default function App() {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Location Modal */}
+      <AnimatePresence>
+        {isLocationModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#E4E3E0] border border-[#141414] p-8 w-full max-w-md space-y-6"
+            >
+              <h3 className="font-serif italic text-2xl">
+                {editingId ? 'Chỉnh sửa vị trí' : 'Thêm vị trí mới'}
+              </h3>
+              <form onSubmit={handleLocationSubmit} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold opacity-50">QR CODE</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={newLocationEntry.qrcode} 
+                    onChange={(e) => {
+                      const qrcode = e.target.value;
+                      const parsed = parseQRCode(qrcode);
+                      setNewLocationEntry({
+                        ...newLocationEntry,
+                        qrcode,
+                        sku: parsed?.sku || newLocationEntry.sku,
+                        partner: parsed?.partner || newLocationEntry.partner,
+                        date: parsed?.date || newLocationEntry.date
+                      });
+                    }}
+                    className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors font-mono"
+                    placeholder="Nhập hoặc dán mã QR..."
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Mã Hàng</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newLocationEntry.sku} 
+                      onChange={(e) => setNewLocationEntry({...newLocationEntry, sku: e.target.value})}
+                      className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Đối tác</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newLocationEntry.partner} 
+                      onChange={(e) => setNewLocationEntry({...newLocationEntry, partner: e.target.value})}
+                      className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Ngày</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newLocationEntry.date} 
+                      onChange={(e) => setNewLocationEntry({...newLocationEntry, date: e.target.value})}
+                      className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Vị trí</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newLocationEntry.location} 
+                      onChange={(e) => setNewLocationEntry({...newLocationEntry, location: e.target.value})}
+                      className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors font-bold text-blue-600"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold opacity-50">Ghi chú</label>
+                  <input 
+                    type="text" 
+                    value={newLocationEntry.note} 
+                    onChange={(e) => setNewLocationEntry({...newLocationEntry, note: e.target.value})}
+                    className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors italic"
+                  />
+                </div>
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    type="button"
+                    onClick={() => setIsLocationModalOpen(false)}
+                    className="flex-1 py-3 border border-[#141414] text-[10px] uppercase font-bold tracking-widest hover:bg-white transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 py-3 bg-[#141414] text-[#E4E3E0] text-[10px] uppercase font-bold tracking-widest hover:opacity-90 transition-opacity"
+                  >
+                    {editingId ? 'Cập nhật' : 'Thêm mới'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Product Modal */}
       <AnimatePresence>
