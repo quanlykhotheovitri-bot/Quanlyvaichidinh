@@ -98,3 +98,16 @@ CREATE TABLE saved_delivery_notes (
 
 ALTER TABLE saved_delivery_notes ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public Access" ON saved_delivery_notes FOR ALL USING (true);
+
+-- Delivery Note Header table
+CREATE TABLE delivery_note_header (
+  id TEXT PRIMARY KEY,
+  docCode TEXT,
+  dept TEXT,
+  "to" TEXT,
+  date TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE delivery_note_header ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access" ON delivery_note_header FOR ALL USING (true);

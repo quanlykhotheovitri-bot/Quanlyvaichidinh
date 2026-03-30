@@ -95,6 +95,16 @@ export default function App() {
     code: '', name: ''
   });
 
+  const generateId = useCallback(() => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }, []);
+
   // Load data from Supabase on start
   React.useEffect(() => {
     const getValidUrl = (url: any): string => {
@@ -130,16 +140,42 @@ export default function App() {
           api.deliveryNoteHeader.get()
         ]);
 
-        if (dbProducts.length > 0) setProducts(dbProducts);
-        if (dbTransactions.length > 0) setTransactions(dbTransactions);
-        if (dbCustomers.length > 0) setCustomers(dbCustomers);
+        // If database is empty, seed it with initial data
+        if (dbProducts.length === 0 && INITIAL_PRODUCTS.length > 0) {
+          await api.products.upsertAll(INITIAL_PRODUCTS);
+          setProducts(INITIAL_PRODUCTS);
+        } else if (dbProducts.length > 0) {
+          setProducts(dbProducts);
+        }
+
+        if (dbTransactions.length === 0 && INITIAL_TRANSACTIONS.length > 0) {
+          await api.transactions.upsertAll(INITIAL_TRANSACTIONS);
+          setTransactions(INITIAL_TRANSACTIONS);
+        } else if (dbTransactions.length > 0) {
+          setTransactions(dbTransactions);
+        }
+
+        if (dbCustomers.length === 0 && INITIAL_CUSTOMERS.length > 0) {
+          await api.customers.upsertAll(INITIAL_CUSTOMERS);
+          setCustomers(INITIAL_CUSTOMERS);
+        } else if (dbCustomers.length > 0) {
+          setCustomers(dbCustomers);
+        }
+
         if (dbDeliveryNotes.length > 0) setDeliveryNotes(dbDeliveryNotes);
         if (dbLocationEntries.length > 0) {
           setLocationEntries(dbLocationEntries.filter(e => e.type === 'input' || !e.type));
           setLocationInventoryEntries(dbLocationEntries.filter(e => e.type === 'inventory'));
         }
         if (dbSavedDeliveryNotes.length > 0) setSavedDeliveryNotes(dbSavedDeliveryNotes);
-        if (dbHeader) setDeliveryNoteHeader(dbHeader);
+        if (dbHeader) {
+          setDeliveryNoteHeader({
+            documentCode: dbHeader.docCode || 'WH.F-004/P-01',
+            dept: dbHeader.dept || 'SX 5',
+            to: dbHeader.to || '',
+            date: dbHeader.date || format(new Date(), 'dd/MM/yyyy')
+          });
+        }
       } catch (error) {
         console.error('Error loading data from Supabase:', error);
       }
@@ -150,7 +186,12 @@ export default function App() {
 
   useEffect(() => {
     if (isSupabaseConfigured) {
-      api.deliveryNoteHeader.upsert(deliveryNoteHeader).catch(err => console.error('Error syncing delivery note header:', err));
+      api.deliveryNoteHeader.upsert({
+        docCode: deliveryNoteHeader.documentCode,
+        dept: deliveryNoteHeader.dept,
+        to: deliveryNoteHeader.to,
+        date: deliveryNoteHeader.date
+      }).catch(err => console.error('Error syncing delivery note header:', err));
     }
   }, [deliveryNoteHeader, isSupabaseConfigured]);
 
@@ -219,7 +260,7 @@ export default function App() {
         const product = products.find(p => p.sku === item.item);
         if (product) {
           newTransactions.push({
-            id: `t-post-${Date.now()}-${item.id}`,
+            id: generateId(),
             productId: product.id,
             type: 'outbound',
             quantity: item.actualQty,
@@ -237,7 +278,7 @@ export default function App() {
     if (newTransactions.length > 0) {
       const today = format(new Date(), 'dd/MM/yyyy');
       const newSavedNote = {
-        id: `dn-saved-${Date.now()}`,
+        id: generateId(),
         date: today,
         items: [...deliveryNotes]
       };
@@ -270,7 +311,7 @@ export default function App() {
     } else {
       updatedProduct = {
         ...newProduct as Product,
-        id: `p-${Date.now()}`,
+        id: generateId(),
       };
       setProducts([...products, updatedProduct]);
     }
@@ -295,7 +336,7 @@ export default function App() {
     } else {
       updatedTransaction = {
         ...newTransaction as Transaction,
-        id: `t-${Date.now()}`,
+        id: generateId(),
         type: activeTab === 'inbound' ? 'inbound' : 'outbound'
       };
       setTransactions([...transactions, updatedTransaction]);
@@ -321,7 +362,7 @@ export default function App() {
     } else {
       updatedCustomer = {
         ...newCustomer as Customer,
-        id: `c-${Date.now()}`,
+        id: generateId(),
       };
       setCustomers([...customers, updatedCustomer]);
     }
@@ -350,7 +391,7 @@ export default function App() {
     } else {
       updatedEntry = {
         ...newLocationEntry as LocationEntry,
-        id: `loc-${Date.now()}`,
+        id: generateId(),
         type: locationSubTab
       };
       if (locationSubTab === 'input') {
@@ -412,7 +453,7 @@ export default function App() {
         if (!existing.date) existing.date = entry.date;
         if (!existing.note) existing.note = entry.note;
       } else {
-        grouped.set(entry.qrcode, { ...entry, id: `loc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, type: 'input' });
+        grouped.set(entry.qrcode, { ...entry, id: generateId(), type: 'input' });
       }
     });
 
@@ -664,7 +705,7 @@ export default function App() {
 
           const existingIndex = skuToProductIndex.get(sku);
           const productData: Product = {
-            id: existingIndex !== undefined ? updatedProducts[existingIndex].id : `p-${Date.now()}-${index}`,
+            id: existingIndex !== undefined ? updatedProducts[existingIndex].id : generateId(),
             sku: sku,
             name: name,
             category: normalizedRow['category'] || normalizedRow['loại'] || row.category || row.Category || 'Chưa phân loại',
@@ -785,7 +826,7 @@ export default function App() {
             const newProductIndex = newProductsToAdd.length;
             skuToNewProductIndex.set(sku, newProductIndex);
             newProductsToAdd.push({
-              id: `p-auto-${Date.now()}-${index}`,
+              id: generateId(),
               sku: sku,
               name: name || 'Sản phẩm mới',
               category: normalizedRow['category'] || normalizedRow['loại'] || 'Tự động tạo',
@@ -837,7 +878,7 @@ export default function App() {
           }
 
           return {
-            id: `t-${Date.now()}-${index}`,
+            id: generateId(),
             productId: product.id,
             type: activeTab as 'inbound' | 'outbound',
             quantity: Number(normalizedRow['quantity'] || normalizedRow['số lượng'] || normalizedRow['số lượng nhập'] || normalizedRow['số lượng xuất'] || row.quantity || row.Quantity || row['Số lượng nhập'] || row['Số lượng xuất'] || 0),
@@ -871,7 +912,7 @@ export default function App() {
 
           const existingIndex = codeToCustomerIndex.get(code);
           const customerData: Customer = {
-            id: existingIndex !== undefined ? updatedCustomers[existingIndex].id : `c-${Date.now()}-${index}`,
+            id: existingIndex !== undefined ? updatedCustomers[existingIndex].id : generateId(),
             code: code,
             name: row.name || row.Name || row['Tên'] || 'Khách hàng mới',
           };
@@ -1009,7 +1050,7 @@ export default function App() {
           const processedData = processLocationStockSheet(sheetData);
           
           const newEntries: LocationEntry[] = processedData.map((item, index) => ({
-            id: `loc-stock-${Date.now()}-${index}`,
+            id: generateId(),
             ...item,
             type: 'inventory'
           }));
@@ -1153,7 +1194,7 @@ export default function App() {
       }
 
       return {
-        id: `dn-${Date.now()}-${index}`,
+        id: generateId(),
         no: 0, // Will be re-indexed
         ovnSaleOrder: ovnSaleOrder,
         ovnProductionOrder: ovnProductionOrder,
@@ -1269,7 +1310,7 @@ export default function App() {
           
           if (!existsInCurrent && !existsInNew) {
             newCustomers.push({
-              id: `cust-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
+              id: generateId(),
               code,
               name
             });
