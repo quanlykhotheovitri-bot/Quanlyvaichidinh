@@ -36,6 +36,7 @@ import {
 import { cn } from './lib/utils';
 import { Product, Transaction, InventoryItem, Customer, DeliveryNoteItem } from './types';
 import { INITIAL_PRODUCTS, INITIAL_TRANSACTIONS, INITIAL_CUSTOMERS } from './constants';
+import { api } from './lib/api';
 
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
@@ -67,6 +68,7 @@ export default function App() {
   const [editingDeliveryNoteId, setEditingDeliveryNoteId] = useState<string | null>(null);
   const [tempDeliveryNoteItem, setTempDeliveryNoteItem] = useState<Partial<DeliveryNoteItem>>({});
   const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk', type: 'product' | 'transaction' | 'customer' } | null>(null);
+  const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(true);
 
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: ''
@@ -78,14 +80,47 @@ export default function App() {
     code: '', name: ''
   });
 
+  // Load data from Supabase on start
+  React.useEffect(() => {
+    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+      setIsSupabaseConfigured(false);
+    }
+
+    const loadData = async () => {
+      try {
+        const [dbProducts, dbTransactions, dbCustomers, dbDeliveryNotes] = await Promise.all([
+          api.products.getAll(),
+          api.transactions.getAll(),
+          api.customers.getAll(),
+          api.deliveryNotes.getAll()
+        ]);
+
+        if (dbProducts.length > 0) setProducts(dbProducts);
+        if (dbTransactions.length > 0) setTransactions(dbTransactions);
+        if (dbCustomers.length > 0) setCustomers(dbCustomers);
+        if (dbDeliveryNotes.length > 0) setDeliveryNotes(dbDeliveryNotes);
+      } catch (error) {
+        console.error('Error loading data from Supabase:', error);
+      }
+    };
+
+    loadData();
+  }, []);
+
   const handleDeleteDeliveryNoteItem = (id: string) => {
     setDeliveryNoteDeleteId(id);
     setIsDeliveryNoteDeleteConfirmOpen(true);
   };
 
-  const confirmDeleteDeliveryNoteItem = () => {
+  const confirmDeleteDeliveryNoteItem = async () => {
     if (deliveryNoteDeleteId !== null) {
-      setDeliveryNotes(prev => prev.filter(item => item.id !== deliveryNoteDeleteId));
+      const updatedNotes = deliveryNotes.filter(item => item.id !== deliveryNoteDeleteId);
+      setDeliveryNotes(updatedNotes);
+      try {
+        await api.deliveryNotes.upsertAll(updatedNotes);
+      } catch (error) {
+        console.error('Error syncing delivery notes:', error);
+      }
       setDeliveryNoteDeleteId(null);
       setIsDeliveryNoteDeleteConfirmOpen(false);
     }
@@ -100,12 +135,18 @@ export default function App() {
     }
   };
 
-  const saveDeliveryNoteItemEdit = (e: React.FormEvent) => {
+  const saveDeliveryNoteItemEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingDeliveryNoteId !== null) {
-      setDeliveryNotes(prev => prev.map(item => 
+      const updatedNotes = deliveryNotes.map(item => 
         item.id === editingDeliveryNoteId ? { ...item, ...tempDeliveryNoteItem } as DeliveryNoteItem : item
-      ));
+      );
+      setDeliveryNotes(updatedNotes);
+      try {
+        await api.deliveryNotes.upsertAll(updatedNotes);
+      } catch (error) {
+        console.error('Error syncing delivery notes:', error);
+      }
       setIsDeliveryNoteEditModalOpen(false);
       setEditingDeliveryNoteId(null);
     }
@@ -120,7 +161,7 @@ export default function App() {
     ));
   };
 
-  const handlePostDeliveryNote = () => {
+  const handlePostDeliveryNote = async () => {
     if (deliveryNotes.length === 0) return;
 
     const today = format(new Date(), 'dd/MM/yyyy');
@@ -147,7 +188,8 @@ export default function App() {
     });
 
     if (newTransactions.length > 0) {
-      setTransactions(prev => [...prev, ...newTransactions]);
+      const updatedTransactions = [...transactions, ...newTransactions];
+      setTransactions(updatedTransactions);
       setSavedDeliveryNotes(prev => [
         ...prev,
         {
@@ -157,71 +199,134 @@ export default function App() {
         }
       ]);
       setDeliveryNotes([]);
+      
+      try {
+        await Promise.all([
+          ...newTransactions.map(t => api.transactions.upsert(t)),
+          api.deliveryNotes.deleteAll()
+        ]);
+      } catch (error) {
+        console.error('Error syncing post delivery note:', error);
+      }
+      
       alert('Đã post xuất kho và lưu phiếu thành công!');
     } else {
       alert('Không có dữ liệu thực tế để xuất kho!');
     }
   };
 
-  const handleAddProduct = (e: React.FormEvent) => {
+  const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+    let updatedProduct: Product;
     if (editingId) {
-      setProducts(products.map(p => p.id === editingId ? { ...newProduct, id: editingId } as Product : p));
+      updatedProduct = { ...newProduct, id: editingId } as Product;
+      setProducts(products.map(p => p.id === editingId ? updatedProduct : p));
       setEditingId(null);
     } else {
-      const product: Product = {
+      updatedProduct = {
         ...newProduct as Product,
         id: `p-${Date.now()}`,
       };
-      setProducts([...products, product]);
+      setProducts([...products, updatedProduct]);
     }
+    
+    try {
+      await api.products.upsert(updatedProduct);
+    } catch (error) {
+      console.error('Error syncing product:', error);
+    }
+    
     setIsProductModalOpen(false);
     setNewProduct({ sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: '' });
   };
 
-  const handleAddTransaction = (e: React.FormEvent) => {
+  const handleAddTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
+    let updatedTransaction: Transaction;
     if (editingId) {
-      setTransactions(transactions.map(t => t.id === editingId ? { ...newTransaction, id: editingId } as Transaction : t));
+      updatedTransaction = { ...newTransaction, id: editingId } as Transaction;
+      setTransactions(transactions.map(t => t.id === editingId ? updatedTransaction : t));
       setEditingId(null);
     } else {
-      const transaction: Transaction = {
+      updatedTransaction = {
         ...newTransaction as Transaction,
         id: `t-${Date.now()}`,
         type: activeTab === 'inbound' ? 'inbound' : 'outbound'
       };
-      setTransactions([...transactions, transaction]);
+      setTransactions([...transactions, updatedTransaction]);
     }
+    
+    try {
+      await api.transactions.upsert(updatedTransaction);
+    } catch (error) {
+      console.error('Error syncing transaction:', error);
+    }
+    
     setIsTransactionModalOpen(false);
     setNewTransaction({ productId: '', type: 'inbound', quantity: 0, date: format(new Date(), 'dd/MM/yyyy'), partner: '', loaiChiDinh: '', lotNo: '', ghiChu: '', designationCode: '' });
   };
 
-  const handleAddCustomer = (e: React.FormEvent) => {
+  const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
+    let updatedCustomer: Customer;
     if (editingId) {
-      setCustomers(customers.map(c => c.id === editingId ? { ...newCustomer, id: editingId } as Customer : c));
+      updatedCustomer = { ...newCustomer, id: editingId } as Customer;
+      setCustomers(customers.map(c => c.id === editingId ? updatedCustomer : c));
       setEditingId(null);
     } else {
-      const customer: Customer = {
+      updatedCustomer = {
         ...newCustomer as Customer,
         id: `c-${Date.now()}`,
       };
-      setCustomers([...customers, customer]);
+      setCustomers([...customers, updatedCustomer]);
     }
+    
+    try {
+      await api.customers.upsert(updatedCustomer);
+    } catch (error) {
+      console.error('Error syncing customer:', error);
+    }
+    
     setIsCustomerModalOpen(false);
     setNewCustomer({ code: '', name: '' });
   };
 
-  const handleDelete = (id: string, type: 'product' | 'transaction' | 'customer') => {
-    if (type === 'product') setProducts(products.filter(p => p.id !== id));
-    if (type === 'transaction') setTransactions(transactions.filter(t => t.id !== id));
-    if (type === 'customer') setCustomers(customers.filter(c => c.id !== id));
+  const handleDelete = async (id: string, type: 'product' | 'transaction' | 'customer') => {
+    try {
+      if (type === 'product') {
+        await api.products.delete(id);
+        setProducts(products.filter(p => p.id !== id));
+      }
+      if (type === 'transaction') {
+        await api.transactions.delete(id);
+        setTransactions(transactions.filter(t => t.id !== id));
+      }
+      if (type === 'customer') {
+        await api.customers.delete(id);
+        setCustomers(customers.filter(c => c.id !== id));
+      }
+    } catch (error) {
+      console.error('Error syncing deletion:', error);
+    }
   };
 
-  const handleBulkDelete = () => {
-    if (activeTab === 'inventory') setProducts(products.filter(p => !selectedRows.includes(p.id)));
-    if (activeTab === 'inbound' || activeTab === 'outbound') setTransactions(transactions.filter(t => !selectedRows.includes(t.id)));
-    if (activeTab === 'customers') setCustomers(customers.filter(c => !selectedRows.includes(c.id)));
+  const handleBulkDelete = async () => {
+    try {
+      if (activeTab === 'inventory') {
+        await Promise.all(selectedRows.map(id => api.products.delete(id)));
+        setProducts(products.filter(p => !selectedRows.includes(p.id)));
+      }
+      if (activeTab === 'inbound' || activeTab === 'outbound') {
+        await Promise.all(selectedRows.map(id => api.transactions.delete(id)));
+        setTransactions(transactions.filter(t => !selectedRows.includes(t.id)));
+      }
+      if (activeTab === 'customers') {
+        await Promise.all(selectedRows.map(id => api.customers.delete(id)));
+        setCustomers(customers.filter(c => !selectedRows.includes(c.id)));
+      }
+    } catch (error) {
+      console.error('Error syncing bulk deletion:', error);
+    }
     setSelectedRows([]);
   };
 
@@ -580,14 +685,17 @@ export default function App() {
 
         if (newTransactions.length > 0) {
           setTransactions(prev => [...prev, ...newTransactions]);
+          Promise.all(newTransactions.map(t => api.transactions.upsert(t))).catch(err => console.error('Error syncing transactions:', err));
         }
 
+        Promise.all(finalProducts.map(p => api.products.upsert(p))).catch(err => console.error('Error syncing products:', err));
         return finalProducts;
       });
     } else if (activeTab === 'customers') {
       // Import Customers
       setCustomers(prev => {
         const updatedCustomers = [...prev];
+        const newCustomers: Customer[] = [];
         const codeToCustomerIndex = new Map(updatedCustomers.map((c, i) => [c.code, i]));
 
         data.forEach((row, index) => {
@@ -606,8 +714,11 @@ export default function App() {
           } else {
             codeToCustomerIndex.set(code, updatedCustomers.length);
             updatedCustomers.push(customerData);
+            newCustomers.push(customerData);
           }
         });
+        
+        Promise.all(updatedCustomers.map(c => api.customers.upsert(c))).catch(err => console.error('Error syncing customers:', err));
         return updatedCustomers;
       });
     }
@@ -839,6 +950,7 @@ export default function App() {
     }));
 
     setDeliveryNotes(finalData);
+    api.deliveryNotes.upsertAll(finalData).catch(err => console.error('Error syncing delivery notes:', err));
   };
 
   const processCustomerData = (data: any[]) => {
@@ -896,7 +1008,9 @@ export default function App() {
       });
 
       if (newCustomers.length === 0) return prev;
-      return [...prev, ...newCustomers];
+      const updated = [...prev, ...newCustomers];
+      Promise.all(newCustomers.map(c => api.customers.upsert(c))).catch(err => console.error('Error syncing customers:', err));
+      return updated;
     });
   };
 
@@ -1045,6 +1159,18 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        {/* Supabase Warning Banner */}
+        {!isSupabaseConfigured && (
+          <div className="bg-amber-100 border-b border-amber-200 px-8 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-3 text-amber-800 text-[10px]">
+              <AlertTriangle size={14} />
+              <span>
+                <strong>Supabase chưa được cấu hình:</strong> Vui lòng thiết lập <code>VITE_SUPABASE_URL</code> và <code>VITE_SUPABASE_ANON_KEY</code> trong menu Settings để đồng bộ dữ liệu.
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-8">
