@@ -51,6 +51,7 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [customers, setCustomers] = useState<Customer[]>(INITIAL_CUSTOMERS);
   const [locationEntries, setLocationEntries] = useState<LocationEntry[]>([]);
+  const [locationInventoryEntries, setLocationInventoryEntries] = useState<LocationEntry[]>([]);
   const [deliveryNotes, setDeliveryNotes] = useState<DeliveryNoteItem[]>([]);
   const [savedDeliveryNotes, setSavedDeliveryNotes] = useState<{id: string, date: string, items: DeliveryNoteItem[]}[]>([]);
   const [deliveryNoteSubTab, setDeliveryNoteSubTab] = useState<'draft' | 'preview' | 'history'>('preview');
@@ -121,7 +122,10 @@ export default function App() {
         if (dbTransactions.length > 0) setTransactions(dbTransactions);
         if (dbCustomers.length > 0) setCustomers(dbCustomers);
         if (dbDeliveryNotes.length > 0) setDeliveryNotes(dbDeliveryNotes);
-        if (dbLocationEntries.length > 0) setLocationEntries(dbLocationEntries);
+        if (dbLocationEntries.length > 0) {
+          setLocationEntries(dbLocationEntries.filter(e => e.type === 'input' || !e.type));
+          setLocationInventoryEntries(dbLocationEntries.filter(e => e.type === 'inventory'));
+        }
         if (dbSavedDeliveryNotes.length > 0) setSavedDeliveryNotes(dbSavedDeliveryNotes);
       } catch (error) {
         console.error('Error loading data from Supabase:', error);
@@ -313,38 +317,54 @@ export default function App() {
     setNewCustomer({ code: '', name: '' });
   };
 
-  const handleLocationImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const processLocationData = async (data: any[]) => {
+    const entries: any[] = data.map((row: any) => {
+      // Normalize row keys
+      const normalizedRow: any = {};
+      Object.keys(row).forEach(key => {
+        normalizedRow[key.toLowerCase().trim()] = row[key];
+      });
 
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      const bstr = evt.target?.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws);
+      const qrcode = normalizedRow['qrcode'] || normalizedRow['qr code'] || row['QR Code'] || row['qrcode'] || '';
+      const parsed = parseQRCode(qrcode);
 
-      const newEntries: LocationEntry[] = data.map((row: any) => ({
-        id: `loc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        qrcode: row['QR Code'] || row['qrcode'] || '',
-        sku: row['SKU'] || row['sku'] || '',
-        partner: row['Đối tác'] || row['partner'] || '',
-        date: row['Ngày'] || row['date'] || format(new Date(), 'dd/MM/yyyy'),
-        location: row['Vị trí'] || row['location'] || '',
-        note: row['Ghi chú'] || row['note'] || ''
-      }));
+      return {
+        qrcode,
+        sku: normalizedRow['sku'] || row['SKU'] || row['sku'] || parsed?.sku || '',
+        partner: normalizedRow['partner'] || normalizedRow['đối tác'] || row['Đối tác'] || row['partner'] || parsed?.partner || '',
+        date: normalizedRow['date'] || normalizedRow['ngày'] || row['Ngày'] || row['date'] || parsed?.date || format(new Date(), 'dd/MM/yyyy'),
+        location: normalizedRow['location'] || normalizedRow['vị trí'] || row['Vị trí'] || row['location'] || '',
+        note: normalizedRow['note'] || normalizedRow['ghi chú'] || row['Ghi chú'] || row['note'] || ''
+      };
+    });
 
-      const updatedEntries = [...locationEntries, ...newEntries];
-      setLocationEntries(updatedEntries);
-      
-      try {
-        await Promise.all(newEntries.map(entry => api.locationEntries.upsert(entry)));
-      } catch (error) {
-        console.error('Error syncing location entries:', error);
+    // Group by QR code and merge locations
+    const grouped = new Map<string, any>();
+    entries.forEach(entry => {
+      if (grouped.has(entry.qrcode)) {
+        const existing = grouped.get(entry.qrcode);
+        if (entry.location && !existing.location.includes(entry.location)) {
+          existing.location += `, ${entry.location}`;
+        }
+      } else {
+        grouped.set(entry.qrcode, { ...entry });
       }
-    };
-    reader.readAsBinaryString(file);
+    });
+
+    const newEntries: LocationEntry[] = Array.from(grouped.values()).map((item, index) => ({
+      id: `loc-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`,
+      ...item,
+      type: 'input'
+    }));
+
+    const updatedEntries = [...locationEntries, ...newEntries];
+    setLocationEntries(updatedEntries);
+    
+    try {
+      await Promise.all(newEntries.map(entry => api.locationEntries.upsert(entry)));
+    } catch (error) {
+      console.error('Error syncing location entries:', error);
+    }
   };
 
   const handleDelete = async (id: string, type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote') => {
@@ -364,6 +384,7 @@ export default function App() {
       if (type === 'location') {
         await api.locationEntries.delete(id);
         setLocationEntries(locationEntries.filter(e => e.id !== id));
+        setLocationInventoryEntries(locationInventoryEntries.filter(e => e.id !== id));
       }
       if (type === 'savedDeliveryNote') {
         await api.savedDeliveryNotes.delete(id);
@@ -492,24 +513,15 @@ export default function App() {
     );
   }, [locationEntries, searchQuery]);
 
-  const locationStock = useMemo(() => {
-    const stockMap: Record<string, { sku: string, partner: string, location: string, count: number }> = {};
-    
-    locationEntries.forEach(entry => {
-      const key = `${entry.sku}-${entry.location}`;
-      if (!stockMap[key]) {
-        stockMap[key] = {
-          sku: entry.sku,
-          partner: entry.partner,
-          location: entry.location,
-          count: 0
-        };
-      }
-      stockMap[key].count += 1;
-    });
-    
-    return Object.values(stockMap);
-  }, [locationEntries]);
+  const filteredLocationInventoryEntries = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+    return locationInventoryEntries.filter(entry => 
+      entry.sku.toLowerCase().includes(query) ||
+      entry.partner.toLowerCase().includes(query) ||
+      entry.location.toLowerCase().includes(query) ||
+      entry.qrcode.toLowerCase().includes(query)
+    );
+  }, [locationInventoryEntries, searchQuery]);
 
   const parseDate = useCallback((dateStr: string) => {
     // Try dd/MM/yyyy first
@@ -817,6 +829,87 @@ export default function App() {
     }
   };
 
+  const parseQRCode = (qrcode: string) => {
+    if (!qrcode) return null;
+    const parts = qrcode.split('|');
+    if (parts.length < 2) return null;
+    
+    const sku = parts[0].trim();
+    const rest = parts[1].trim();
+    const restParts = rest.split('-');
+    
+    const partner = restParts[0] || '';
+    let date = restParts[1] || '';
+    
+    if (date && date.includes('/')) {
+      const dateParts = date.split('/');
+      if (dateParts[2] && dateParts[2].length === 2) {
+        dateParts[2] = '20' + dateParts[2];
+        date = dateParts.join('/');
+      }
+    }
+    
+    return { sku, partner, date };
+  };
+
+  const processLocationStockSheet = (sheetData: any[][]) => {
+    let currentSection: 'INPUT' | 'OUTPUT' | null = null;
+    const inputEntries: any[] = [];
+    const outputQRCodes: Set<string> = new Set();
+
+    sheetData.forEach(row => {
+      if (!row || row.length === 0) return;
+      const firstCell = String(row[0] || '').trim().toUpperCase();
+      
+      if (firstCell === 'INPUT') {
+        currentSection = 'INPUT';
+        return;
+      }
+      if (firstCell === 'OUTPUT') {
+        currentSection = 'OUTPUT';
+        return;
+      }
+
+      if (currentSection === 'INPUT') {
+        const qrcode = String(row[0] || '').trim();
+        if (qrcode && qrcode !== 'QRCODE') {
+          const parsed = parseQRCode(qrcode);
+          inputEntries.push({
+            qrcode,
+            sku: String(row[1] || '').trim() || parsed?.sku || '',
+            partner: String(row[2] || '').trim() || parsed?.partner || '',
+            date: String(row[3] || '').trim() || parsed?.date || '',
+            location: String(row[4] || '').trim(),
+            note: String(row[5] || '').trim(),
+          });
+        }
+      } else if (currentSection === 'OUTPUT') {
+        const qrcode = String(row[0] || '').trim();
+        if (qrcode && qrcode !== 'QRCODE') {
+          outputQRCodes.add(qrcode);
+        }
+      }
+    });
+
+    // Filter out outputted QR codes
+    const filtered = inputEntries.filter(entry => !outputQRCodes.has(entry.qrcode));
+    
+    // Group by QR code and merge locations
+    const grouped = new Map<string, any>();
+    filtered.forEach(entry => {
+      if (grouped.has(entry.qrcode)) {
+        const existing = grouped.get(entry.qrcode);
+        if (entry.location && !existing.location.includes(entry.location)) {
+          existing.location += `, ${entry.location}`;
+        }
+      } else {
+        grouped.set(entry.qrcode, { ...entry });
+      }
+    });
+
+    return Array.from(grouped.values());
+  };
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -832,6 +925,8 @@ export default function App() {
             processDeliveryNoteData(results.data);
           } else if (activeTab === 'customers') {
             processCustomerData(results.data);
+          } else if (activeTab === 'location') {
+            processLocationData(results.data);
           } else {
             processData(results.data);
           }
@@ -843,16 +938,36 @@ export default function App() {
       reader.onload = (e) => {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
         
-        if (activeTab === 'deliveryNote') {
-          processDeliveryNoteData(jsonData);
-        } else if (activeTab === 'customers') {
-          processCustomerData(jsonData);
+        if (activeTab === 'location' && locationSubTab === 'inventory') {
+          // Use 3rd sheet for location inventory (index 2)
+          const sheetName = workbook.SheetNames[2] || workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const sheetData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+          const processedData = processLocationStockSheet(sheetData);
+          
+          const newEntries: LocationEntry[] = processedData.map((item, index) => ({
+            id: `loc-stock-${Date.now()}-${index}`,
+            ...item,
+            type: 'inventory'
+          }));
+          
+          setLocationInventoryEntries(newEntries);
+          Promise.all(newEntries.map(entry => api.locationEntries.upsert(entry))); // Note: Using same API for now, or should we have a separate one?
         } else {
-          processData(jsonData);
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          
+          if (activeTab === 'deliveryNote') {
+            processDeliveryNoteData(jsonData);
+          } else if (activeTab === 'customers') {
+            processCustomerData(jsonData);
+          } else if (activeTab === 'location') {
+            processLocationData(jsonData);
+          } else {
+            processData(jsonData);
+          }
         }
         
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -2276,22 +2391,13 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex gap-3">
-                    {locationSubTab === 'input' && (
-                      <button 
-                        onClick={() => fileInputRef.current?.click()}
-                        className="flex items-center gap-2 px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
-                      >
-                        <FileUp size={14} />
-                        Nhập Excel
-                      </button>
-                    )}
-                    <input 
-                      type="file" 
-                      ref={fileInputRef} 
-                      onChange={handleLocationImport} 
-                      className="hidden" 
-                      accept=".xlsx, .xls, .csv"
-                    />
+                    <button 
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-2 px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                    >
+                      <FileUp size={14} />
+                      Nhập Excel {locationSubTab === 'inventory' ? '(Sheet 3)' : ''}
+                    </button>
                   </div>
                 </div>
 
@@ -2300,10 +2406,10 @@ export default function App() {
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
-                          <th className="border border-[#141414] p-3 text-left">QRCODE</th>
-                          <th className="border border-[#141414] p-3 text-left">Mã</th>
-                          <th className="border border-[#141414] p-3 text-left">NCC</th>
-                          <th className="border border-[#141414] p-3 text-left">NGÀY</th>
+                          <th className="border border-[#141414] p-3 text-left">QR CODE</th>
+                          <th className="border border-[#141414] p-3 text-left">Mã Hàng</th>
+                          <th className="border border-[#141414] p-3 text-left">Đối tác</th>
+                          <th className="border border-[#141414] p-3 text-left">Ngày</th>
                           <th className="border border-[#141414] p-3 text-left">Vị trí</th>
                           <th className="border border-[#141414] p-3 text-left">Ghi chú</th>
                           <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
@@ -2351,26 +2457,44 @@ export default function App() {
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
-                          <th className="border border-[#141414] p-3 text-left">Mã</th>
-                          <th className="border border-[#141414] p-3 text-left">NCC</th>
+                          <th className="border border-[#141414] p-3 text-left">QR CODE</th>
+                          <th className="border border-[#141414] p-3 text-left">Mã Hàng</th>
+                          <th className="border border-[#141414] p-3 text-left">Đối tác</th>
+                          <th className="border border-[#141414] p-3 text-left">Ngày</th>
                           <th className="border border-[#141414] p-3 text-left">Vị trí</th>
-                          <th className="border border-[#141414] p-3 text-center bg-yellow-400 text-[#141414] font-bold">Số lượng (Cuộn/Kiện)</th>
+                          <th className="border border-[#141414] p-3 text-left">Ghi chú</th>
+                          <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
+                            Thao tác
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
-                        {locationStock.length === 0 ? (
+                        {filteredLocationInventoryEntries.length === 0 ? (
                           <tr>
-                            <td colSpan={4} className="border border-[#141414] p-8 text-center italic text-gray-400">
-                              Không có dữ liệu tồn theo vị trí.
+                            <td colSpan={7} className="border border-[#141414] p-8 text-center italic text-gray-400">
+                              Không có dữ liệu tồn theo vị trí. Hãy nhập file Excel (Sheet 3).
                             </td>
                           </tr>
                         ) : (
-                          locationStock.map((stock, idx) => (
-                            <tr key={idx} className="bg-white text-xs hover:bg-gray-50 transition-colors">
-                              <td className="border border-[#141414] p-3 font-bold">{stock.sku}</td>
-                              <td className="border border-[#141414] p-3">{stock.partner}</td>
-                              <td className="border border-[#141414] p-3 font-bold text-blue-600">{stock.location}</td>
-                              <td className="border border-[#141414] p-3 text-center font-mono font-bold">{stock.count}</td>
+                          filteredLocationInventoryEntries.map(entry => (
+                            <tr key={entry.id} className="bg-white text-xs hover:bg-gray-50 transition-colors">
+                              <td className="border border-[#141414] p-3 font-mono">{entry.qrcode}</td>
+                              <td className="border border-[#141414] p-3 font-bold">{entry.sku}</td>
+                              <td className="border border-[#141414] p-3">{entry.partner}</td>
+                              <td className="border border-[#141414] p-3">{entry.date}</td>
+                              <td className="border border-[#141414] p-3 font-bold text-blue-600">{entry.location}</td>
+                              <td className="border border-[#141414] p-3 italic">{entry.note}</td>
+                              <td className="border border-[#141414] p-3 text-center">
+                                <button 
+                                  onClick={() => {
+                                    setDeleteTarget({ id: entry.id, type: 'location' });
+                                    setIsDeleteConfirmOpen(true);
+                                  }}
+                                  className="p-1 hover:bg-gray-200 rounded transition-colors"
+                                >
+                                  <Trash2 size={14} className="text-red-600" />
+                                </button>
+                              </td>
                             </tr>
                           ))
                         )}

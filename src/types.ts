@@ -66,4 +66,5 @@ export interface LocationEntry {
   date: string;
   location: string;
   note: string;
+  type: 'input' | 'inventory';
 }
