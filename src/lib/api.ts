@@ -170,6 +170,11 @@ export const api = {
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'saved_delivery_notes');
     },
+    async upsertAll(notes: {id: string, date: string, items: DeliveryNoteItem[]}[]): Promise<void> {
+      const { error } = await supabase.from('saved_delivery_notes').upsert(notes);
+      if (error) throw error;
+      localStorage.removeItem(CACHE_KEY_PREFIX + 'saved_delivery_notes');
+    },
     async delete(id: string): Promise<void> {
       const { error } = await supabase.from('saved_delivery_notes').delete().eq('id', id);
       if (error) throw error;

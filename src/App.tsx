@@ -18,7 +18,8 @@ import {
   Square,
   FileText,
   Printer,
-  MapPin
+  MapPin,
+  Save
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -84,6 +85,7 @@ export default function App() {
   });
   const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk', type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote' } | null>(null);
   const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: ''
@@ -513,6 +515,33 @@ export default function App() {
       console.error('Error syncing bulk deletion:', error);
     }
     setSelectedRows([]);
+  };
+
+  const handleSaveAll = async () => {
+    setIsSaving(true);
+    try {
+      await Promise.all([
+        api.products.upsertAll(products),
+        api.transactions.upsertAll(transactions),
+        api.customers.upsertAll(customers),
+        api.locationEntries.upsertAll([...locationEntries, ...locationInventoryEntries]),
+        api.deliveryNotes.upsertAll(deliveryNotes),
+        api.savedDeliveryNotes.upsertAll(savedDeliveryNotes),
+        api.deliveryNoteHeader.upsert({
+          docCode: deliveryNoteHeader.documentCode,
+          dept: deliveryNoteHeader.dept,
+          to: deliveryNoteHeader.to,
+          date: deliveryNoteHeader.date
+        })
+      ]);
+      // Using a simple alert for now as requested
+      alert('Dữ liệu đã được lưu trữ thành công!');
+    } catch (error) {
+      console.error('Lỗi khi lưu dữ liệu:', error);
+      alert('Có lỗi xảy ra khi lưu dữ liệu. Vui lòng kiểm tra lại kết nối.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const confirmDelete = () => {
@@ -1436,6 +1465,18 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
+            <button 
+              onClick={handleSaveAll}
+              disabled={isSaving}
+              className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-[10px] font-bold uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {isSaving ? (
+                <div className="w-3 h-3 border-2 border-[#E4E3E0] border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Save size={14} />
+              )}
+              {isSaving ? 'Đang lưu...' : 'Lưu tất cả'}
+            </button>
             {selectedRows.length > 0 && (
               <button 
                 onClick={() => {
