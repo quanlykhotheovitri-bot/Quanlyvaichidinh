@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { 
   LayoutDashboard, 
   ArrowDownToLine, 
@@ -120,13 +120,14 @@ export default function App() {
 
     const loadData = async () => {
       try {
-        const [dbProducts, dbTransactions, dbCustomers, dbDeliveryNotes, dbLocationEntries, dbSavedDeliveryNotes] = await Promise.all([
+        const [dbProducts, dbTransactions, dbCustomers, dbDeliveryNotes, dbLocationEntries, dbSavedDeliveryNotes, dbHeader] = await Promise.all([
           api.products.getAll(),
           api.transactions.getAll(),
           api.customers.getAll(),
           api.deliveryNotes.getAll(),
           api.locationEntries.getAll(),
-          api.savedDeliveryNotes.getAll()
+          api.savedDeliveryNotes.getAll(),
+          api.deliveryNoteHeader.get()
         ]);
 
         if (dbProducts.length > 0) setProducts(dbProducts);
@@ -138,6 +139,7 @@ export default function App() {
           setLocationInventoryEntries(dbLocationEntries.filter(e => e.type === 'inventory'));
         }
         if (dbSavedDeliveryNotes.length > 0) setSavedDeliveryNotes(dbSavedDeliveryNotes);
+        if (dbHeader) setDeliveryNoteHeader(dbHeader);
       } catch (error) {
         console.error('Error loading data from Supabase:', error);
       }
@@ -145,6 +147,12 @@ export default function App() {
 
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (isSupabaseConfigured) {
+      api.deliveryNoteHeader.upsert(deliveryNoteHeader).catch(err => console.error('Error syncing delivery note header:', err));
+    }
+  }, [deliveryNoteHeader, isSupabaseConfigured]);
 
   const handleDeleteDeliveryNoteItem = (id: string) => {
     setDeliveryNoteDeleteId(id);
@@ -385,28 +393,34 @@ export default function App() {
 
     // Group by QR code and merge locations
     const grouped = new Map<string, any>();
+    
+    // First, add existing entries to the map
+    locationEntries.forEach(entry => {
+      grouped.set(entry.qrcode, { ...entry });
+    });
+
+    // Then, merge new entries
     entries.forEach(entry => {
       if (grouped.has(entry.qrcode)) {
         const existing = grouped.get(entry.qrcode);
         if (entry.location && !existing.location.includes(entry.location)) {
-          existing.location += `, ${entry.location}`;
+          existing.location = existing.location ? `${existing.location}, ${entry.location}` : entry.location;
         }
+        // Update other fields if they were empty
+        if (!existing.sku) existing.sku = entry.sku;
+        if (!existing.partner) existing.partner = entry.partner;
+        if (!existing.date) existing.date = entry.date;
+        if (!existing.note) existing.note = entry.note;
       } else {
-        grouped.set(entry.qrcode, { ...entry });
+        grouped.set(entry.qrcode, { ...entry, id: `loc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, type: 'input' });
       }
     });
 
-    const newEntries: LocationEntry[] = Array.from(grouped.values()).map((item, index) => ({
-      id: `loc-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`,
-      ...item,
-      type: 'input'
-    }));
-
-    const updatedEntries = [...locationEntries, ...newEntries];
-    setLocationEntries(updatedEntries);
+    const finalEntries: LocationEntry[] = Array.from(grouped.values());
+    setLocationEntries(finalEntries);
     
     try {
-      await Promise.all(newEntries.map(entry => api.locationEntries.upsert(entry)));
+      await api.locationEntries.upsertAll(finalEntries);
     } catch (error) {
       console.error('Error syncing location entries:', error);
     }
@@ -669,6 +683,7 @@ export default function App() {
             updatedProducts.push(productData);
           }
         });
+        api.products.upsertAll(updatedProducts).catch(err => console.error('Error syncing products:', err));
         return updatedProducts;
       });
     } else if (activeTab === 'inbound' || activeTab === 'outbound') {
@@ -837,10 +852,10 @@ export default function App() {
 
         if (newTransactions.length > 0) {
           setTransactions(prev => [...prev, ...newTransactions]);
-          Promise.all(newTransactions.map(t => api.transactions.upsert(t))).catch(err => console.error('Error syncing transactions:', err));
+          api.transactions.upsertAll(newTransactions).catch(err => console.error('Error syncing transactions:', err));
         }
 
-        Promise.all(finalProducts.map(p => api.products.upsert(p))).catch(err => console.error('Error syncing products:', err));
+        api.products.upsertAll(finalProducts).catch(err => console.error('Error syncing products:', err));
         return finalProducts;
       });
     } else if (activeTab === 'customers') {
@@ -1000,7 +1015,7 @@ export default function App() {
           }));
           
           setLocationInventoryEntries(newEntries);
-          Promise.all(newEntries.map(entry => api.locationEntries.upsert(entry))); // Note: Using same API for now, or should we have a separate one?
+          api.locationEntries.upsertAll(newEntries).catch(err => console.error('Error syncing location inventory:', err));
         } else {
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
@@ -1264,7 +1279,7 @@ export default function App() {
 
       if (newCustomers.length === 0) return prev;
       const updated = [...prev, ...newCustomers];
-      Promise.all(newCustomers.map(c => api.customers.upsert(c))).catch(err => console.error('Error syncing customers:', err));
+      api.customers.upsertAll(newCustomers).catch(err => console.error('Error syncing customers:', err));
       return updated;
     });
   };

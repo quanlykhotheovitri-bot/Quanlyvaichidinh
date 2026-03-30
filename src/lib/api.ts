@@ -40,6 +40,11 @@ export const api = {
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'products');
     },
+    async upsertAll(products: Product[]): Promise<void> {
+      const { error } = await supabase.from('products').upsert(products);
+      if (error) throw error;
+      localStorage.removeItem(CACHE_KEY_PREFIX + 'products');
+    },
     async delete(id: string): Promise<void> {
       const { error } = await supabase.from('products').delete().eq('id', id);
       if (error) throw error;
@@ -62,6 +67,11 @@ export const api = {
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'transactions');
     },
+    async upsertAll(transactions: Transaction[]): Promise<void> {
+      const { error } = await supabase.from('transactions').upsert(transactions);
+      if (error) throw error;
+      localStorage.removeItem(CACHE_KEY_PREFIX + 'transactions');
+    },
     async delete(id: string): Promise<void> {
       const { error } = await supabase.from('transactions').delete().eq('id', id);
       if (error) throw error;
@@ -81,6 +91,11 @@ export const api = {
     },
     async upsert(customer: Customer): Promise<void> {
       const { error } = await supabase.from('customers').upsert(customer);
+      if (error) throw error;
+      localStorage.removeItem(CACHE_KEY_PREFIX + 'customers');
+    },
+    async upsertAll(customers: Customer[]): Promise<void> {
+      const { error } = await supabase.from('customers').upsert(customers);
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'customers');
     },
@@ -128,6 +143,11 @@ export const api = {
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
     },
+    async upsertAll(entries: LocationEntry[]): Promise<void> {
+      const { error } = await supabase.from('location_entries').upsert(entries);
+      if (error) throw error;
+      localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
+    },
     async delete(id: string): Promise<void> {
       const { error } = await supabase.from('location_entries').delete().eq('id', id);
       if (error) throw error;
@@ -154,6 +174,17 @@ export const api = {
       const { error } = await supabase.from('saved_delivery_notes').delete().eq('id', id);
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'saved_delivery_notes');
+    }
+  },
+  deliveryNoteHeader: {
+    async get(): Promise<{docCode: string, dept: string, to: string, date: string} | null> {
+      const { data, error } = await supabase.from('delivery_note_header').select('*').single();
+      if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "no rows returned"
+      return data;
+    },
+    async upsert(header: {docCode: string, dept: string, to: string, date: string}): Promise<void> {
+      const { error } = await supabase.from('delivery_note_header').upsert({ id: 'current', ...header });
+      if (error) throw error;
     }
   }
 };
