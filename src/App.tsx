@@ -1110,7 +1110,7 @@ export default function App() {
           if (fileInputRef.current) fileInputRef.current.value = '';
         }
       });
-    } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+    } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.xlsm')) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
@@ -1612,7 +1612,7 @@ export default function App() {
               type="file" 
               ref={fileInputRef} 
               onChange={handleFileUpload} 
-              accept=".csv,.xlsx,.xls" 
+              accept=".csv,.xlsx,.xls,.xlsm" 
               className="hidden" 
             />
             <button className="p-2 border border-[#141414] hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
