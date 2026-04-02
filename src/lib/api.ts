@@ -33,15 +33,54 @@ export const api = {
       if (error) throw error;
       
       setCache('products', data);
-      return data as Product[];
+      return (data || []).map(row => ({
+        ...row,
+        minStock: row.minstock ?? row.minStock ?? 0,
+        lotNo: row.lotno ?? row.lotNo ?? '',
+        ghiChu: row.ghichu ?? row.ghiChu ?? '',
+        designationCode: row.designationcode ?? row.designationCode ?? '',
+        loaiChiDinh: row.loaichidinh ?? row.loaiChiDinh ?? ''
+      })) as Product[];
     },
     async upsert(product: Product): Promise<void> {
-      const { error } = await supabase.from('products').upsert(product);
+      const payload = {
+        ...product,
+        minstock: product.minStock,
+        lotno: product.lotNo,
+        ghichu: product.ghiChu,
+        designationcode: product.designationCode,
+        loaichidinh: product.loaiChiDinh
+      };
+      // Delete camelCase keys to avoid PGRST204
+      delete (payload as any).minStock;
+      delete (payload as any).lotNo;
+      delete (payload as any).ghiChu;
+      delete (payload as any).designationCode;
+      delete (payload as any).loaiChiDinh;
+
+      const { error } = await supabase.from('products').upsert(payload);
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'products');
     },
     async upsertAll(products: Product[]): Promise<void> {
-      const { error } = await supabase.from('products').upsert(products);
+      if (!products.length) return;
+      const payload = products.map(product => {
+        const p = {
+          ...product,
+          minstock: product.minStock,
+          lotno: product.lotNo,
+          ghichu: product.ghiChu,
+          designationcode: product.designationCode,
+          loaichidinh: product.loaiChiDinh
+        };
+        delete (p as any).minStock;
+        delete (p as any).lotNo;
+        delete (p as any).ghiChu;
+        delete (p as any).designationCode;
+        delete (p as any).loaiChiDinh;
+        return p;
+      });
+      const { error } = await supabase.from('products').upsert(payload);
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'products');
     },
@@ -60,15 +99,53 @@ export const api = {
       if (error) throw error;
       
       setCache('transactions', data);
-      return data as Transaction[];
+      return (data || []).map(row => ({
+        ...row,
+        productId: row.productid ?? row.productId ?? '',
+        loaiChiDinh: row.loaichidinh ?? row.loaiChiDinh ?? '',
+        lotNo: row.lotno ?? row.lotNo ?? '',
+        ghiChu: row.ghichu ?? row.ghiChu ?? '',
+        designationCode: row.designationcode ?? row.designationCode ?? ''
+      })) as Transaction[];
     },
     async upsert(transaction: Transaction): Promise<void> {
-      const { error } = await supabase.from('transactions').upsert(transaction);
+      const payload = {
+        ...transaction,
+        productid: transaction.productId,
+        loaichidinh: transaction.loaiChiDinh,
+        lotno: transaction.lotNo,
+        ghichu: transaction.ghiChu,
+        designationcode: transaction.designationCode
+      };
+      delete (payload as any).productId;
+      delete (payload as any).loaiChiDinh;
+      delete (payload as any).lotNo;
+      delete (payload as any).ghiChu;
+      delete (payload as any).designationCode;
+
+      const { error } = await supabase.from('transactions').upsert(payload);
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'transactions');
     },
     async upsertAll(transactions: Transaction[]): Promise<void> {
-      const { error } = await supabase.from('transactions').upsert(transactions);
+      if (!transactions.length) return;
+      const payload = transactions.map(transaction => {
+        const t = {
+          ...transaction,
+          productid: transaction.productId,
+          loaichidinh: transaction.loaiChiDinh,
+          lotno: transaction.lotNo,
+          ghichu: transaction.ghiChu,
+          designationcode: transaction.designationCode
+        };
+        delete (t as any).productId;
+        delete (t as any).loaiChiDinh;
+        delete (t as any).lotNo;
+        delete (t as any).ghiChu;
+        delete (t as any).designationCode;
+        return t;
+      });
+      const { error } = await supabase.from('transactions').upsert(payload);
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'transactions');
     },
@@ -114,11 +191,49 @@ export const api = {
       if (error) throw error;
       
       setCache('delivery_notes', data);
-      return data as DeliveryNoteItem[];
+      return (data || []).map(row => ({
+        ...row,
+        ovnSaleOrder: row.ovnsaleorder ?? row.ovnSaleOrder ?? '',
+        ovnProductionOrder: row.ovnproductionorder ?? row.ovnProductionOrder ?? '',
+        materialName: row.materialname ?? row.materialName ?? '',
+        qtyErp: row.qtyerp ?? row.qtyErp ?? 0,
+        actualQty: row.actualqty ?? row.actualQty ?? 0,
+        lotNo: row.lotno ?? row.lotNo ?? '',
+        actualIssuedQty: row.actualissuedqty ?? row.actualIssuedQty ?? 0,
+        customerCode: row.customercode ?? row.customerCode ?? '',
+        finalDestination: row.finaldestination ?? row.finalDestination ?? '',
+        noCode: row.nocode ?? row.noCode ?? ''
+      })) as DeliveryNoteItem[];
     },
     async upsertAll(items: DeliveryNoteItem[]): Promise<void> {
       if (items.length === 0) return;
-      const { error } = await supabase.from('delivery_notes').upsert(items);
+      const payload = items.map(item => {
+        const i = {
+          ...item,
+          ovnsaleorder: item.ovnSaleOrder,
+          ovnproductionorder: item.ovnProductionOrder,
+          materialname: item.materialName,
+          qtyerp: item.qtyErp,
+          actualqty: item.actualQty,
+          lotno: item.lotNo,
+          actualissuedqty: item.actualIssuedQty,
+          customercode: item.customerCode,
+          finaldestination: item.finalDestination,
+          nocode: item.noCode
+        };
+        delete (i as any).ovnSaleOrder;
+        delete (i as any).ovnProductionOrder;
+        delete (i as any).materialName;
+        delete (i as any).qtyErp;
+        delete (i as any).actualQty;
+        delete (i as any).lotNo;
+        delete (i as any).actualIssuedQty;
+        delete (i as any).customerCode;
+        delete (i as any).finalDestination;
+        delete (i as any).noCode;
+        return i;
+      });
+      const { error } = await supabase.from('delivery_notes').upsert(payload);
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'delivery_notes');
     },
@@ -227,23 +342,28 @@ export const api = {
       const { data, error } = await supabase.from('delivery_note_header').select('*').single();
       if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "no rows returned"
       if (!data) return null;
-      return { ...data, to: data.to || (data as any).toName || '' };
+      return { 
+        docCode: data.doccode ?? data.docCode ?? '',
+        dept: data.dept ?? '',
+        to: data.toname ?? data.to ?? '',
+        date: data.date ?? ''
+      };
     },
     async upsert(header: {docCode: string, dept: string, to: string, date: string}): Promise<void> {
       const { error } = await supabase.from('delivery_note_header').upsert({ 
         id: 'current', 
-        docCode: header.docCode,
+        doccode: header.docCode,
         dept: header.dept,
-        to: header.to,
+        toname: header.to,
         date: header.date
       });
       if (error) {
         // Fallback in case they already ran the migration (or the error code differs)
         const retry = await supabase.from('delivery_note_header').upsert({ 
           id: 'current', 
-          docCode: header.docCode,
+          doccode: header.docCode,
           dept: header.dept,
-          toName: header.to,
+          to: header.to,
           date: header.date
         });
         if (retry.error) {
