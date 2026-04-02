@@ -117,6 +117,7 @@ export const api = {
       return data as DeliveryNoteItem[];
     },
     async upsertAll(items: DeliveryNoteItem[]): Promise<void> {
+      if (items.length === 0) return;
       const { error } = await supabase.from('delivery_notes').upsert(items);
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'delivery_notes');
@@ -144,6 +145,7 @@ export const api = {
       localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
     },
     async upsertAll(entries: LocationEntry[]): Promise<void> {
+      if (entries.length === 0) return;
       const { error } = await supabase.from('location_entries').upsert(entries);
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
@@ -190,10 +192,18 @@ export const api = {
     async get(): Promise<{docCode: string, dept: string, to: string, date: string} | null> {
       const { data, error } = await supabase.from('delivery_note_header').select('*').single();
       if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "no rows returned"
-      return data;
+      if (!data) return null;
+      // Map DB column 'toName' back to 'to' for App.tsx compatibility
+      return { ...data, to: (data as any).toName || data.to || '' };
     },
     async upsert(header: {docCode: string, dept: string, to: string, date: string}): Promise<void> {
-      const { error } = await supabase.from('delivery_note_header').upsert({ id: 'current', ...header });
+      const { error } = await supabase.from('delivery_note_header').upsert({ 
+        id: 'current', 
+        docCode: header.docCode,
+        dept: header.dept,
+        toName: header.to,
+        date: header.date
+      });
       if (error) throw error;
     }
   }

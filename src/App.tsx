@@ -529,7 +529,7 @@ export default function App() {
         normalizedRow[key.toLowerCase().trim()] = row[key];
       });
 
-      const qrcode = normalizedRow['qrcode'] || normalizedRow['qr code'] || row['QR Code'] || row['qrcode'] || '';
+      const qrcode = String(normalizedRow['qrcode'] || normalizedRow['qr code'] || row['QR Code'] || row['qrcode'] || '').trim();
       const parsed = parseQRCode(qrcode);
       
       // If QR code matches AWB-XXXXXX- format (starts with AWB and no |), don't use default date
@@ -543,23 +543,27 @@ export default function App() {
         date: normalizedRow['date'] || normalizedRow['ngày'] || row['Ngày'] || row['date'] || parsed?.date || defaultDate,
         location: normalizedRow['location'] || normalizedRow['vị trí'] || normalizedRow['vi tri'] || row['Vị trí'] || row['location'] || '',
         note: normalizedRow['note'] || normalizedRow['ghi chú'] || normalizedRow['cuộn'] || normalizedRow['cuon'] || row['Cuộn'] || row['Ghi chú'] || row['note'] || '',
-        quantity: parseInt(normalizedRow['quantity'] || normalizedRow['số lượng'] || normalizedRow['so luong'] || row['Số lượng'] || row['quantity'] || '1') || 1
+        quantity: parseInt(String(normalizedRow['quantity'] || normalizedRow['số lượng'] || normalizedRow['so luong'] || row['Số lượng'] || row['quantity'] || '1')) || 1
       };
-    });
+    }).filter(entry => entry.qrcode); // Lọc bỏ dòng không có QR code
+
+    if (newEntries.length === 0) return;
 
     // Update location log (locationEntries) - Keep as a log (don't group) to match manual scan behavior
     const currentScanType = locationSubTab === 'output' ? 'OUTPUT' : 'INPUT';
     const logEntriesToAdd: LocationEntry[] = newEntries.map(entry => ({
       ...entry,
       id: generateId(),
-      type: 'input',
+      type: 'input' as const,
       scanType: currentScanType
     }));
 
     setLocationEntries(prev => [...logEntriesToAdd, ...prev]);
 
     // Update inventory (locationInventoryEntries) - Group by QR code and location
+    // Dùng functional update để lấy giá trị mới nhất, tránh stale closure
     let finalInventoryEntries: LocationEntry[] = [];
+    let entriesToDeleteFromDb: LocationEntry[] = [];
     
     setLocationInventoryEntries(prev => {
       const inventoryGrouped = new Map<string, LocationEntry>();
@@ -598,63 +602,33 @@ export default function App() {
         }
       });
 
-      finalInventoryEntries = Array.from(inventoryGrouped.values());
-      return finalInventoryEntries;
+      const newFinal = Array.from(inventoryGrouped.values());
+      
+      // Tìm entries bị xóa (OUTPUT đã xuất hết) để xóa khỏi DB
+      const prevIds = new Set(prev.map(e => e.id));
+      const newIds = new Set(newFinal.map(e => e.id));
+      entriesToDeleteFromDb = prev.filter(e => prevIds.has(e.id) && !newIds.has(e.id));
+      
+      finalInventoryEntries = newFinal;
+      return newFinal;
     });
     
+    // Sync to Supabase sau khi state đã được cập nhật
     try {
-      // Sync to Supabase
-      // We use the final state from setLocationInventoryEntries to ensure correctness
-      // But since setLocationInventoryEntries is async, we calculate it here too
-      const inventoryGroupedForApi = new Map<string, LocationEntry>();
-      locationInventoryEntries.forEach(entry => {
-        const key = `${entry.qrcode}|${entry.location || ''}`;
-        inventoryGroupedForApi.set(key, { ...entry });
-      });
-      
-      newEntries.forEach(entry => {
-        if (entry.qrcode) {
-          const key = `${entry.qrcode}|${entry.location || ''}`;
-          if (currentScanType === 'INPUT') {
-            if (inventoryGroupedForApi.has(key)) {
-              const existing = inventoryGroupedForApi.get(key)!;
-              existing.sku = entry.sku || existing.sku;
-              existing.partner = entry.partner || existing.partner;
-              existing.date = entry.date || existing.date;
-              existing.note = entry.note || existing.note;
-              existing.quantity = (existing.quantity || 0) + (entry.quantity || 0);
-            } else {
-              inventoryGroupedForApi.set(key, { ...entry, id: generateId(), type: 'inventory' });
-            }
-          } else if (currentScanType === 'OUTPUT') {
-            if (inventoryGroupedForApi.has(key)) {
-              const existing = inventoryGroupedForApi.get(key)!;
-              existing.quantity = (existing.quantity || 0) - (entry.quantity || 0);
-              if (existing.quantity <= 0) {
-                inventoryGroupedForApi.delete(key);
-              }
-            }
-          }
-        }
-      });
-      
-      const apiInventoryEntries = Array.from(inventoryGroupedForApi.values());
-      
-      // Find entries that were removed to delete them from DB
-      const prevKeys = new Set(locationInventoryEntries.map(e => `${e.qrcode}|${e.location || ''}`));
-      const currentKeys = new Set(apiInventoryEntries.map(e => `${e.qrcode}|${e.location || ''}`));
-      const keysToDelete = Array.from(prevKeys).filter((k: string) => !currentKeys.has(k));
-      const entriesToDelete = locationInventoryEntries.filter(e => keysToDelete.includes(`${e.qrcode}|${e.location || ''}`));
-
-      await Promise.all([
+      const syncTasks: Promise<void>[] = [
         api.locationEntries.upsertAll(logEntriesToAdd),
-        api.locationEntries.upsertAll(apiInventoryEntries),
-        ...entriesToDelete.map(e => api.locationEntries.delete(e.id))
-      ]);
+        api.locationEntries.upsertAll(finalInventoryEntries),
+      ];
+      if (entriesToDeleteFromDb.length > 0) {
+        entriesToDeleteFromDb.forEach(e => syncTasks.push(api.locationEntries.delete(e.id)));
+      }
+      await Promise.all(syncTasks);
     } catch (error) {
       console.error('Error syncing location entries:', error);
+      alert('Nhập file thành công nhưng có lỗi khi lưu lên server. Vui lòng nhấn "Lưu tất cả" để thử lại.');
     }
   };
+
 
   const handleDelete = async (id: string, type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote') => {
     try {
