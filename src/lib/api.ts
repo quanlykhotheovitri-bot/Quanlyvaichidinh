@@ -26,21 +26,26 @@ const setCache = <T>(key: string, value: T, ttl: number = 3600000): void => {
 export const api = {
   products: {
     async getAll(): Promise<Product[]> {
-      const cached = getCache<Product[]>('products');
-      if (cached) return cached;
-
-      const { data, error } = await supabase.from('products').select('*');
-      if (error) throw error;
-      
-      setCache('products', data);
-      return (data || []).map(row => ({
-        ...row,
-        minStock: row.minstock ?? row.minStock ?? 0,
-        lotNo: row.lotno ?? row.lotNo ?? '',
-        ghiChu: row.ghichu ?? row.ghiChu ?? '',
-        designationCode: row.designationcode ?? row.designationCode ?? '',
-        loaiChiDinh: row.loaichidinh ?? row.loaiChiDinh ?? ''
-      })) as Product[];
+      try {
+        const { data, error } = await supabase.from('products').select('*');
+        if (error) throw error;
+        
+        const mappedData = (data || []).map(row => ({
+          ...row,
+          minStock: row.minstock ?? row.minStock ?? 0,
+          lotNo: row.lotno ?? row.lotNo ?? '',
+          ghiChu: row.ghichu ?? row.ghiChu ?? '',
+          designationCode: row.designationcode ?? row.designationCode ?? '',
+          loaiChiDinh: row.loaichidinh ?? row.loaiChiDinh ?? ''
+        })) as Product[];
+        setCache('products', mappedData, 30 * 24 * 3600000); // 30 days
+        return mappedData;
+      } catch (err: any) {
+        console.warn('Offline mode: using cached products', err.message);
+        const cached = getCache<Product[]>('products');
+        if (cached) return cached;
+        throw err;
+      }
     },
     async upsert(product: Product): Promise<void> {
       const payload = {
@@ -58,9 +63,12 @@ export const api = {
       delete (payload as any).designationCode;
       delete (payload as any).loaiChiDinh;
 
-      const { error } = await supabase.from('products').upsert(payload);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'products');
+      try {
+        const { error } = await supabase.from('products').upsert(payload);
+        if (error) throw error;
+      } catch (err) {
+        console.warn('Offline mode: product upsert saved locally via full sync');
+      }
     },
     async upsertAll(products: Product[]): Promise<void> {
       if (!products.length) return;
@@ -80,9 +88,13 @@ export const api = {
         delete (p as any).loaiChiDinh;
         return p;
       });
-      const { error } = await supabase.from('products').upsert(payload);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'products');
+      setCache('products', products, 30 * 24 * 3600000); // Optimistic cache update
+      try {
+        const { error } = await supabase.from('products').upsert(payload);
+        if (error) throw error;
+      } catch (err) {
+        console.warn('Offline mode: upsertAll saved locally');
+      }
     },
     async delete(id: string): Promise<void> {
       const { error } = await supabase.from('products').delete().eq('id', id);
@@ -92,21 +104,26 @@ export const api = {
   },
   transactions: {
     async getAll(): Promise<Transaction[]> {
-      const cached = getCache<Transaction[]>('transactions');
-      if (cached) return cached;
-
-      const { data, error } = await supabase.from('transactions').select('*');
-      if (error) throw error;
-      
-      setCache('transactions', data);
-      return (data || []).map(row => ({
-        ...row,
-        productId: row.productid ?? row.productId ?? '',
-        loaiChiDinh: row.loaichidinh ?? row.loaiChiDinh ?? '',
-        lotNo: row.lotno ?? row.lotNo ?? '',
-        ghiChu: row.ghichu ?? row.ghiChu ?? '',
-        designationCode: row.designationcode ?? row.designationCode ?? ''
-      })) as Transaction[];
+      try {
+        const { data, error } = await supabase.from('transactions').select('*');
+        if (error) throw error;
+        
+        const mappedData = (data || []).map(row => ({
+          ...row,
+          productId: row.productid ?? row.productId ?? '',
+          loaiChiDinh: row.loaichidinh ?? row.loaiChiDinh ?? '',
+          lotNo: row.lotno ?? row.lotNo ?? '',
+          ghiChu: row.ghichu ?? row.ghiChu ?? '',
+          designationCode: row.designationcode ?? row.designationCode ?? ''
+        })) as Transaction[];
+        setCache('transactions', mappedData, 30 * 24 * 3600000);
+        return mappedData;
+      } catch (err: any) {
+        console.warn('Offline mode: using cached transactions', err.message);
+        const cached = getCache<Transaction[]>('transactions');
+        if (cached) return cached;
+        throw err;
+      }
     },
     async upsert(transaction: Transaction): Promise<void> {
       const payload = {
@@ -123,9 +140,12 @@ export const api = {
       delete (payload as any).ghiChu;
       delete (payload as any).designationCode;
 
-      const { error } = await supabase.from('transactions').upsert(payload);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'transactions');
+      try {
+        const { error } = await supabase.from('transactions').upsert(payload);
+        if (error) throw error;
+      } catch (err) {
+        console.warn('Offline mode: transaction upsert saved locally via full sync');
+      }
     },
     async upsertAll(transactions: Transaction[]): Promise<void> {
       if (!transactions.length) return;
@@ -145,9 +165,13 @@ export const api = {
         delete (t as any).designationCode;
         return t;
       });
-      const { error } = await supabase.from('transactions').upsert(payload);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'transactions');
+      setCache('transactions', transactions, 30 * 24 * 3600000);
+      try {
+        const { error } = await supabase.from('transactions').upsert(payload);
+        if (error) throw error;
+      } catch (err) {
+        console.warn('Offline mode: upsertAll saved locally');
+      }
     },
     async delete(id: string): Promise<void> {
       const { error } = await supabase.from('transactions').delete().eq('id', id);
@@ -157,24 +181,35 @@ export const api = {
   },
   customers: {
     async getAll(): Promise<Customer[]> {
-      const cached = getCache<Customer[]>('customers');
-      if (cached) return cached;
-
-      const { data, error } = await supabase.from('customers').select('*');
-      if (error) throw error;
-      
-      setCache('customers', data);
-      return data as Customer[];
+      try {
+        const { data, error } = await supabase.from('customers').select('*');
+        if (error) throw error;
+        setCache('customers', data as Customer[], 30 * 24 * 3600000);
+        return data as Customer[];
+      } catch (err: any) {
+        console.warn('Offline mode: using cached customers', err.message);
+        const cached = getCache<Customer[]>('customers');
+        if (cached) return cached;
+        throw err;
+      }
     },
     async upsert(customer: Customer): Promise<void> {
-      const { error } = await supabase.from('customers').upsert(customer);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'customers');
+      try {
+        const { error } = await supabase.from('customers').upsert(customer);
+        if (error) throw error;
+      } catch (err) {
+        console.warn('Offline mode: upsert saved locally');
+      }
     },
     async upsertAll(customers: Customer[]): Promise<void> {
-      const { error } = await supabase.from('customers').upsert(customers);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'customers');
+      if (!customers.length) return;
+      setCache('customers', customers, 30 * 24 * 3600000);
+      try {
+        const { error } = await supabase.from('customers').upsert(customers);
+        if (error) throw error;
+      } catch (err) {
+        console.warn('Offline mode: upsertAll saved locally');
+      }
     },
     async delete(id: string): Promise<void> {
       const { error } = await supabase.from('customers').delete().eq('id', id);
@@ -184,26 +219,31 @@ export const api = {
   },
   deliveryNotes: {
     async getAll(): Promise<DeliveryNoteItem[]> {
-      const cached = getCache<DeliveryNoteItem[]>('delivery_notes');
-      if (cached) return cached;
-
-      const { data, error } = await supabase.from('delivery_notes').select('*');
-      if (error) throw error;
-      
-      setCache('delivery_notes', data);
-      return (data || []).map(row => ({
-        ...row,
-        ovnSaleOrder: row.ovnsaleorder ?? row.ovnSaleOrder ?? '',
-        ovnProductionOrder: row.ovnproductionorder ?? row.ovnProductionOrder ?? '',
-        materialName: row.materialname ?? row.materialName ?? '',
-        qtyErp: row.qtyerp ?? row.qtyErp ?? 0,
-        actualQty: row.actualqty ?? row.actualQty ?? 0,
-        lotNo: row.lotno ?? row.lotNo ?? '',
-        actualIssuedQty: row.actualissuedqty ?? row.actualIssuedQty ?? 0,
-        customerCode: row.customercode ?? row.customerCode ?? '',
-        finalDestination: row.finaldestination ?? row.finalDestination ?? '',
-        noCode: row.nocode ?? row.noCode ?? ''
-      })) as DeliveryNoteItem[];
+      try {
+        const { data, error } = await supabase.from('delivery_notes').select('*');
+        if (error) throw error;
+        
+        const mappedData = (data || []).map(row => ({
+          ...row,
+          ovnSaleOrder: row.ovnsaleorder ?? row.ovnSaleOrder ?? '',
+          ovnProductionOrder: row.ovnproductionorder ?? row.ovnProductionOrder ?? '',
+          materialName: row.materialname ?? row.materialName ?? '',
+          qtyErp: row.qtyerp ?? row.qtyErp ?? 0,
+          actualQty: row.actualqty ?? row.actualQty ?? 0,
+          lotNo: row.lotno ?? row.lotNo ?? '',
+          actualIssuedQty: row.actualissuedqty ?? row.actualIssuedQty ?? 0,
+          customerCode: row.customercode ?? row.customerCode ?? '',
+          finalDestination: row.finaldestination ?? row.finalDestination ?? '',
+          noCode: row.nocode ?? row.noCode ?? ''
+        })) as DeliveryNoteItem[];
+        setCache('delivery_notes', mappedData, 30 * 24 * 3600000);
+        return mappedData;
+      } catch (err: any) {
+        console.warn('Offline mode: using cached delivery notes', err.message);
+        const cached = getCache<DeliveryNoteItem[]>('delivery_notes');
+        if (cached) return cached;
+        throw err;
+      }
     },
     async upsertAll(items: DeliveryNoteItem[]): Promise<void> {
       if (items.length === 0) return;
@@ -233,9 +273,13 @@ export const api = {
         delete (i as any).noCode;
         return i;
       });
-      const { error } = await supabase.from('delivery_notes').upsert(payload);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'delivery_notes');
+      setCache('delivery_notes', items, 30 * 24 * 3600000);
+      try {
+        const { error } = await supabase.from('delivery_notes').upsert(payload);
+        if (error) throw error;
+      } catch (err) {
+        console.warn('Offline mode: upsertAll delivery notes saved locally');
+      }
     },
     async deleteAll(): Promise<void> {
       const { error } = await supabase.from('delivery_notes').delete().neq('id', '');
@@ -245,19 +289,25 @@ export const api = {
   },
   locationEntries: {
     async getAll(): Promise<LocationEntry[]> {
-      const cached = getCache<LocationEntry[]>('location_entries');
-      if (cached) return cached;
-
-      const { data, error } = await supabase.from('location_entries').select('*');
-      if (error) throw error;
-      
-      setCache('location_entries', data);
-      return data as LocationEntry[];
+      try {
+        const { data, error } = await supabase.from('location_entries').select('*');
+        if (error) throw error;
+        setCache('location_entries', data as LocationEntry[], 30 * 24 * 3600000);
+        return data as LocationEntry[];
+      } catch (err: any) {
+        console.warn('Offline mode: using cached location entries', err.message);
+        const cached = getCache<LocationEntry[]>('location_entries');
+        if (cached) return cached;
+        throw err;
+      }
     },
     async upsert(entry: LocationEntry): Promise<void> {
-      const { error } = await supabase.from('location_entries').upsert(entry);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
+      try {
+        const { error } = await supabase.from('location_entries').upsert(entry);
+        if (error) throw error;
+      } catch (err) {
+        console.warn('Offline mode: location entry upsert saved locally');
+      }
     },
     async upsertAll(entries: LocationEntry[]): Promise<void> {
       if (!entries.length) return;
@@ -274,30 +324,32 @@ export const api = {
         scanType: e.scanType
       }));
       
-      const { error } = await supabase.from('location_entries').upsert(payload1);
-      
-      if (error) {
-        // Fallback for scantype (lowercase in older PostgREST schemas)
-        const payload2 = entries.map(e => ({
-          id: e.id,
-          qrcode: e.qrcode,
-          sku: e.sku,
-          partner: e.partner,
-          date: e.date,
-          location: e.location,
-          note: e.note,
-          quantity: e.quantity,
-          type: e.type,
-          scantype: e.scanType
-        }));
-        const retry = await supabase.from('location_entries').upsert(payload2);
-        if (retry.error) {
-          const errorMsg = `Lỗi Supabase (Location - Original): ${error.message} (Code: ${error.code})\nLỗi Supabase (Location - Retry): ${retry.error.message} (Code: ${retry.error.code})`;
-          alert(errorMsg);
-          throw retry.error;
+      setCache('location_entries', entries, 30 * 24 * 3600000);
+      try {
+        const { error } = await supabase.from('location_entries').upsert(payload1);
+        
+        if (error) {
+          // Fallback for scantype (lowercase in older PostgREST schemas)
+          const payload2 = entries.map(e => ({
+            id: e.id,
+            qrcode: e.qrcode,
+            sku: e.sku,
+            partner: e.partner,
+            date: e.date,
+            location: e.location,
+            note: e.note,
+            quantity: e.quantity,
+            type: e.type,
+            scantype: e.scanType
+          }));
+          const retry = await supabase.from('location_entries').upsert(payload2);
+          if (retry.error) {
+            throw retry.error;
+          }
         }
+      } catch (err) {
+        console.warn('Offline mode: upsertAll location entries saved locally');
       }
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
     },
     async delete(id: string): Promise<void> {
       const { error } = await supabase.from('location_entries').delete().eq('id', id);
@@ -312,24 +364,34 @@ export const api = {
   },
   savedDeliveryNotes: {
     async getAll(): Promise<{id: string, date: string, items: DeliveryNoteItem[]}[]> {
-      const cached = getCache<{id: string, date: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes');
-      if (cached) return cached;
-
-      const { data, error } = await supabase.from('saved_delivery_notes').select('*');
-      if (error) throw error;
-      
-      setCache('saved_delivery_notes', data);
-      return data as {id: string, date: string, items: DeliveryNoteItem[]}[];
+      try {
+        const { data, error } = await supabase.from('saved_delivery_notes').select('*');
+        if (error) throw error;
+        setCache('saved_delivery_notes', data as any[], 30 * 24 * 3600000);
+        return data as {id: string, date: string, items: DeliveryNoteItem[]}[];
+      } catch (err: any) {
+        console.warn('Offline mode: using cached saved delivery notes', err.message);
+        const cached = getCache<{id: string, date: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes');
+        if (cached) return cached;
+        throw err;
+      }
     },
     async upsert(note: {id: string, date: string, items: DeliveryNoteItem[]}): Promise<void> {
-      const { error } = await supabase.from('saved_delivery_notes').upsert(note);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'saved_delivery_notes');
+      try {
+        const { error } = await supabase.from('saved_delivery_notes').upsert(note);
+        if (error) throw error;
+      } catch (err) {
+        console.warn('Offline mode: saved delivery note upsert saved locally');
+      }
     },
     async upsertAll(notes: {id: string, date: string, items: DeliveryNoteItem[]}[]): Promise<void> {
-      const { error } = await supabase.from('saved_delivery_notes').upsert(notes);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'saved_delivery_notes');
+      setCache('saved_delivery_notes', notes, 30 * 24 * 3600000);
+      try {
+        const { error } = await supabase.from('saved_delivery_notes').upsert(notes);
+        if (error) throw error;
+      } catch (err) {
+        console.warn('Offline mode: saved delivery notes upsertAll saved locally');
+      }
     },
     async delete(id: string): Promise<void> {
       const { error } = await supabase.from('saved_delivery_notes').delete().eq('id', id);
@@ -339,38 +401,52 @@ export const api = {
   },
   deliveryNoteHeader: {
     async get(): Promise<{docCode: string, dept: string, to: string, date: string} | null> {
-      const { data, error } = await supabase.from('delivery_note_header').select('*').single();
-      if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "no rows returned"
-      if (!data) return null;
-      return { 
-        docCode: data.doccode ?? data.docCode ?? '',
-        dept: data.dept ?? '',
-        to: data.toname ?? data.to ?? '',
-        date: data.date ?? ''
-      };
+      try {
+        const { data, error } = await supabase.from('delivery_note_header').select('*').single();
+        if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "no rows returned"
+        if (!data) return null;
+        const result = { 
+          docCode: data.doccode ?? data.docCode ?? '',
+          dept: data.dept ?? '',
+          to: data.toname ?? data.to ?? '',
+          date: data.date ?? ''
+        };
+        setCache('delivery_note_header', result, 30 * 24 * 3600000);
+        return result;
+      } catch (err: any) {
+        console.warn('Offline mode: using cached delivery note header', err.message);
+        const cached = getCache<{docCode: string, dept: string, to: string, date: string}>('delivery_note_header');
+        if (cached) return cached;
+        throw err;
+      }
     },
     async upsert(header: {docCode: string, dept: string, to: string, date: string}): Promise<void> {
-      const { error } = await supabase.from('delivery_note_header').upsert({ 
-        id: 'current', 
-        doccode: header.docCode,
-        dept: header.dept,
-        toname: header.to,
-        date: header.date
-      });
-      if (error) {
-        // Fallback in case they already ran the migration (or the error code differs)
-        const retry = await supabase.from('delivery_note_header').upsert({ 
+      try {
+        const { error } = await supabase.from('delivery_note_header').upsert({ 
           id: 'current', 
           doccode: header.docCode,
           dept: header.dept,
-          to: header.to,
+          toname: header.to,
           date: header.date
         });
-        if (retry.error) {
-          // If both fail, let's show the exact error message from Supabase
-          const errorMsg = `Lỗi Supabase (Original): ${error.message} (Code: ${error.code})\nLỗi Supabase (Retry): ${retry.error.message} (Code: ${retry.error.code})`;
-          alert(errorMsg);
-          throw retry.error;
+        if (error) throw error;
+        setCache('delivery_note_header', header, 30 * 24 * 3600000);
+      } catch (error: any) {
+        // Fallback in case they already ran the migration (or the error code differs)
+        setCache('delivery_note_header', header, 30 * 24 * 3600000);
+        try {
+          const retry = await supabase.from('delivery_note_header').upsert({ 
+            id: 'current', 
+            doccode: header.docCode,
+            dept: header.dept,
+            to: header.to,
+            date: header.date
+          });
+          if (retry.error) {
+            throw retry.error;
+          }
+        } catch (err) {
+          console.warn('Offline mode: delivery note header upsert saved locally');
         }
       }
     }

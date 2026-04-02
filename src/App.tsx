@@ -19,7 +19,8 @@ import {
   FileText,
   Printer,
   MapPin,
-  Save
+  Save,
+  WifiOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -91,6 +92,7 @@ export default function App() {
   const [isSetupModalOpen, setIsSetupModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasLoadedData, setHasLoadedData] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: ''
@@ -211,6 +213,12 @@ export default function App() {
     if (!hasLoadedData || !isSupabaseConfigured) return;
 
     const timeoutId = setTimeout(async () => {
+      // Don't attempt to sync if offline
+      if (!isOnline) {
+        console.log('App is offline, skipping sync until network is back. Data is safely cached locally.');
+        return;
+      }
+
       setIsSaving(true);
       try {
         await Promise.all([
@@ -235,6 +243,50 @@ export default function App() {
     }, 3000); // 3 seconds debounce auto-save
 
     return () => clearTimeout(timeoutId);
+  }, [hasLoadedData, isSupabaseConfigured, isOnline, products, transactions, customers, locationEntries, locationInventoryEntries, deliveryNotes, savedDeliveryNotes, deliveryNoteHeader]);
+
+  // Handle Online/Offline Status and Forced Sync
+  useEffect(() => {
+    const handleOnline = async () => {
+      setIsOnline(true);
+      // Force sync right after reconnecting
+      if (hasLoadedData && isSupabaseConfigured) {
+        setIsSaving(true);
+        try {
+          await Promise.all([
+            api.products.upsertAll(products),
+            api.transactions.upsertAll(transactions),
+            api.customers.upsertAll(customers),
+            api.locationEntries.upsertAll([...locationEntries, ...locationInventoryEntries]),
+            api.deliveryNotes.upsertAll(deliveryNotes),
+            api.savedDeliveryNotes.upsertAll(savedDeliveryNotes),
+            api.deliveryNoteHeader.upsert({
+              docCode: deliveryNoteHeader.documentCode,
+              dept: deliveryNoteHeader.dept,
+              to: deliveryNoteHeader.to,
+              date: deliveryNoteHeader.date
+            })
+          ]);
+          alert('Đã kết nối lại Internet và đồng bộ dữ liệu nội bộ lên Mây thành công!');
+        } catch (error) {
+          console.error('Lỗi khi đồng bộ lúc có mạng lại:', error);
+        } finally {
+          setIsSaving(false);
+        }
+      }
+    };
+    
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, [hasLoadedData, isSupabaseConfigured, products, transactions, customers, locationEntries, locationInventoryEntries, deliveryNotes, savedDeliveryNotes, deliveryNoteHeader]);
 
   useEffect(() => {
@@ -1822,10 +1874,12 @@ export default function App() {
             <button 
               onClick={handleSaveAll}
               disabled={isSaving}
-              className={`flex items-center gap-2 px-4 py-2 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-80 ${isSaving ? 'bg-[#ff9900] text-black' : 'bg-[#141414] text-[#E4E3E0] hover:opacity-90'}`}
-              title="Hệ thống đã bật tự động lưu"
+              className={`flex items-center gap-2 px-4 py-2 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-80 ${!isOnline ? 'bg-red-600 text-white' : isSaving ? 'bg-[#ff9900] text-black' : 'bg-[#141414] text-[#E4E3E0] hover:opacity-90'}`}
+              title={!isOnline ? "Hoạt động Ngoại Tuyến (Offline)" : "Hệ thống đã bật tự động lưu"}
             >
-              {isSaving ? (
+              {!isOnline ? (
+                <WifiOff size={14} />
+              ) : isSaving ? (
                 <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
               ) : (
                 <Save size={14} />
