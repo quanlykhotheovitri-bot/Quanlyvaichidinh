@@ -145,9 +145,42 @@ export const api = {
       localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
     },
     async upsertAll(entries: LocationEntry[]): Promise<void> {
-      if (entries.length === 0) return;
-      const { error } = await supabase.from('location_entries').upsert(entries);
-      if (error) throw error;
+      if (!entries.length) return;
+      const payload1 = entries.map(e => ({
+        id: e.id,
+        qrcode: e.qrcode,
+        sku: e.sku,
+        partner: e.partner,
+        date: e.date,
+        location: e.location,
+        note: e.note,
+        quantity: e.quantity,
+        type: e.type,
+        scanType: e.scanType
+      }));
+      const { error } = await supabase.from('location_entries').upsert(payload1);
+      
+      if (error) {
+        // Fallback for scantype (lowercase in older PostgREST schemas)
+        const payload2 = entries.map(e => ({
+          id: e.id,
+          qrcode: e.qrcode,
+          sku: e.sku,
+          partner: e.partner,
+          date: e.date,
+          location: e.location,
+          note: e.note,
+          quantity: e.quantity,
+          type: e.type,
+          scantype: e.scanType
+        }));
+        const retry = await supabase.from('location_entries').upsert(payload2);
+        if (retry.error) {
+          const errorMsg = `Lỗi Supabase (Location - Original): ${error.message} (Code: ${error.code})\nLỗi Supabase (Location - Retry): ${retry.error.message} (Code: ${retry.error.code})`;
+          alert(errorMsg);
+          throw retry.error;
+        }
+      }
       localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
     },
     async delete(id: string): Promise<void> {
