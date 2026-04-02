@@ -212,7 +212,12 @@ export const api = {
           toName: header.to,
           date: header.date
         });
-        if (retry.error) throw retry.error;
+        if (retry.error) {
+          // If both fail, let's show the exact error message from Supabase
+          const errorMsg = `Lỗi Supabase (Original): ${error.message} (Code: ${error.code})\nLỗi Supabase (Retry): ${retry.error.message} (Code: ${retry.error.code})`;
+          alert(errorMsg);
+          throw retry.error;
+        }
       }
     }
   }
