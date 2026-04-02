@@ -1,5 +1,5 @@
 {
-  "name": "Quản lý Kho & Vị Trí",
+  "name": "Quản lý Kho",
   "description": "Ứng dụng quản lý nhập kho, xuất kho, tồn kho và vị trí hàng hóa với Supabase.",
   "requestFramePermissions": []
 }

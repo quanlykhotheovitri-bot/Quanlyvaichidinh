@@ -86,7 +86,7 @@ export default function App() {
   const [newLocationEntry, setNewLocationEntry] = useState<Partial<LocationEntry>>({
     qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: ''
   });
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk', type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote' } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk', type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote', qrcode?: string } | null>(null);
   const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(INITIAL_SUPABASE_CONFIGURED);
   const [isSetupModalOpen, setIsSetupModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -170,7 +170,7 @@ export default function App() {
           // Deduplicate existing inventory entries
           const grouped = new Map<string, LocationEntry>();
           inventoryEntries.forEach(entry => {
-            const key = `${entry.qrcode}|${entry.location}`;
+            const key = `${entry.qrcode}|${entry.location || ''}`;
             if (!grouped.has(key)) {
               grouped.set(key, { ...entry });
             } else {
@@ -218,13 +218,14 @@ export default function App() {
 
   const confirmDeleteDeliveryNoteItem = async () => {
     if (deliveryNoteDeleteId !== null) {
-      const updatedNotes = deliveryNotes.filter(item => item.id !== deliveryNoteDeleteId);
-      setDeliveryNotes(updatedNotes);
-      try {
-        await api.deliveryNotes.upsertAll(updatedNotes);
-      } catch (error) {
-        console.error('Error syncing delivery notes:', error);
-      }
+      setDeliveryNotes(prev => {
+        const updatedNotes = prev.filter(item => item.id !== deliveryNoteDeleteId);
+        api.deliveryNotes.upsertAll(updatedNotes).catch(error => {
+          console.error('Error syncing delivery notes:', error);
+          alert('Không thể đồng bộ phiếu giao hàng sau khi xóa.');
+        });
+        return updatedNotes;
+      });
       setDeliveryNoteDeleteId(null);
       setIsDeliveryNoteDeleteConfirmOpen(false);
     }
@@ -430,12 +431,48 @@ export default function App() {
           setLocationInventoryEntries(prev => [...prev, updatedEntry]);
         }
       } else {
+        // locationSubTab === 'input'
         updatedEntry = {
           ...newLocationEntry as LocationEntry,
           id: generateId(),
-          type: locationSubTab
+          type: 'input',
+          scanType: 'INPUT'
         };
-        setLocationEntries([...locationEntries, updatedEntry]);
+        setLocationEntries([updatedEntry, ...locationEntries]);
+
+        // Also update inventory
+        const existingIndex = locationInventoryEntries.findIndex(
+          entry => entry.qrcode === newLocationEntry.qrcode && entry.location === newLocationEntry.location
+        );
+
+        if (existingIndex >= 0) {
+          const existing = locationInventoryEntries[existingIndex];
+          const updatedInventoryEntry: LocationEntry = {
+            ...existing,
+            sku: newLocationEntry.sku || existing.sku,
+            partner: newLocationEntry.partner || existing.partner,
+            date: newLocationEntry.date || existing.date,
+            note: newLocationEntry.note || existing.note,
+          };
+          setLocationInventoryEntries(prev => prev.map((e, i) => i === existingIndex ? updatedInventoryEntry : e));
+          try {
+            await api.locationEntries.upsert(updatedInventoryEntry);
+          } catch (error) {
+            console.error('Error syncing inventory entry:', error);
+          }
+        } else {
+          const newInventoryEntry: LocationEntry = {
+            ...newLocationEntry as LocationEntry,
+            id: generateId(),
+            type: 'inventory'
+          };
+          setLocationInventoryEntries(prev => [newInventoryEntry, ...prev]);
+          try {
+            await api.locationEntries.upsert(newInventoryEntry);
+          } catch (error) {
+            console.error('Error syncing inventory entry:', error);
+          }
+        }
       }
     }
     
@@ -450,7 +487,7 @@ export default function App() {
   };
 
   const processLocationData = async (data: any[]) => {
-    const entries: any[] = data.map((row: any) => {
+    const newEntries: any[] = data.map((row: any) => {
       // Normalize row keys
       const normalizedRow: any = {};
       Object.keys(row).forEach(key => {
@@ -459,47 +496,95 @@ export default function App() {
 
       const qrcode = normalizedRow['qrcode'] || normalizedRow['qr code'] || row['QR Code'] || row['qrcode'] || '';
       const parsed = parseQRCode(qrcode);
+      
+      // If QR code matches AWB-XXXXXX- format (starts with AWB and no |), don't use default date
+      const isSimpleAWB = qrcode.toUpperCase().startsWith('AWB-') && !qrcode.includes('|');
+      const defaultDate = isSimpleAWB ? '' : format(new Date(), 'dd/MM/yyyy');
 
       return {
         qrcode,
         sku: normalizedRow['sku'] || row['SKU'] || row['sku'] || parsed?.sku || '',
         partner: normalizedRow['partner'] || normalizedRow['đối tác'] || row['Đối tác'] || row['partner'] || parsed?.partner || '',
-        date: normalizedRow['date'] || normalizedRow['ngày'] || row['Ngày'] || row['date'] || parsed?.date || format(new Date(), 'dd/MM/yyyy'),
-        location: normalizedRow['location'] || normalizedRow['vị trí'] || row['Vị trí'] || row['location'] || '',
-        note: normalizedRow['note'] || normalizedRow['ghi chú'] || row['Ghi chú'] || row['note'] || ''
+        date: normalizedRow['date'] || normalizedRow['ngày'] || row['Ngày'] || row['date'] || parsed?.date || defaultDate,
+        location: normalizedRow['location'] || normalizedRow['vị trí'] || normalizedRow['vi tri'] || row['Vị trí'] || row['location'] || '',
+        note: normalizedRow['note'] || normalizedRow['ghi chú'] || normalizedRow['cuộn'] || normalizedRow['cuon'] || row['Cuộn'] || row['Ghi chú'] || row['note'] || ''
       };
     });
 
-    // Group by QR code and merge locations
-    const grouped = new Map<string, any>();
+    // Update location log (locationEntries) - Keep as a log (don't group) to match manual scan behavior
+    const logEntriesToAdd: LocationEntry[] = newEntries.map(entry => ({
+      ...entry,
+      id: generateId(),
+      type: 'input',
+      scanType: 'INPUT'
+    }));
+
+    setLocationEntries(prev => [...logEntriesToAdd, ...prev]);
+
+    // Update inventory (locationInventoryEntries) - Group by QR code and location
+    let finalInventoryEntries: LocationEntry[] = [];
     
-    // First, add existing entries to the map
-    locationEntries.forEach(entry => {
-      grouped.set(entry.qrcode, { ...entry });
-    });
+    setLocationInventoryEntries(prev => {
+      const inventoryGrouped = new Map<string, LocationEntry>();
+      prev.forEach(entry => {
+        const key = `${entry.qrcode}|${entry.location || ''}`;
+        inventoryGrouped.set(key, { ...entry });
+      });
 
-    // Then, merge new entries
-    entries.forEach(entry => {
-      if (grouped.has(entry.qrcode)) {
-        const existing = grouped.get(entry.qrcode);
-        if (entry.location && !existing.location.includes(entry.location)) {
-          existing.location = existing.location ? `${existing.location}, ${entry.location}` : entry.location;
+      newEntries.forEach(entry => {
+        if (entry.qrcode) {
+          const key = `${entry.qrcode}|${entry.location || ''}`;
+          if (inventoryGrouped.has(key)) {
+            const existing = inventoryGrouped.get(key)!;
+            // Update fields if they were empty in the existing entry
+            if (!existing.sku) existing.sku = entry.sku;
+            if (!existing.partner) existing.partner = entry.partner;
+            if (!existing.date) existing.date = entry.date;
+            if (!existing.note) existing.note = entry.note;
+          } else {
+            inventoryGrouped.set(key, { 
+              ...entry, 
+              id: generateId(), 
+              type: 'inventory' 
+            });
+          }
         }
-        // Update other fields if they were empty
-        if (!existing.sku) existing.sku = entry.sku;
-        if (!existing.partner) existing.partner = entry.partner;
-        if (!existing.date) existing.date = entry.date;
-        if (!existing.note) existing.note = entry.note;
-      } else {
-        grouped.set(entry.qrcode, { ...entry, id: generateId(), type: 'input' });
-      }
-    });
+      });
 
-    const finalEntries: LocationEntry[] = Array.from(grouped.values());
-    setLocationEntries(finalEntries);
+      finalInventoryEntries = Array.from(inventoryGrouped.values());
+      return finalInventoryEntries;
+    });
     
     try {
-      await api.locationEntries.upsertAll(finalEntries);
+      // Sync to Supabase
+      // We use a small delay to ensure finalInventoryEntries is populated from the functional update
+      // or we can just calculate it separately for the API call.
+      const inventoryGroupedForApi = new Map<string, LocationEntry>();
+      locationInventoryEntries.forEach(entry => {
+        const key = `${entry.qrcode}|${entry.location || ''}`;
+        inventoryGroupedForApi.set(key, { ...entry });
+      });
+      newEntries.forEach(entry => {
+        if (entry.qrcode) {
+          const key = `${entry.qrcode}|${entry.location || ''}`;
+          if (inventoryGroupedForApi.has(key)) {
+            const existing = inventoryGroupedForApi.get(key)!;
+            if (!existing.sku) existing.sku = entry.sku;
+            if (!existing.partner) existing.partner = entry.partner;
+            if (!existing.date) existing.date = entry.date;
+            if (!existing.note) existing.note = entry.note;
+          } else {
+            inventoryGroupedForApi.set(key, { ...entry, id: generateId(), type: 'inventory' });
+          }
+        }
+      });
+      
+      const apiInventoryEntries = Array.from(inventoryGroupedForApi.values());
+
+      await Promise.all([
+        api.locationEntries.upsertAll(logEntriesToAdd),
+        api.locationEntries.upsertAll(apiInventoryEntries)
+      ]);
     } catch (error) {
       console.error('Error syncing location entries:', error);
     }
@@ -509,27 +594,35 @@ export default function App() {
     try {
       if (type === 'product') {
         await api.products.delete(id);
-        setProducts(products.filter(p => p.id !== id));
+        setProducts(prev => prev.filter(p => p.id !== id));
       }
       if (type === 'transaction') {
         await api.transactions.delete(id);
-        setTransactions(transactions.filter(t => t.id !== id));
+        setTransactions(prev => prev.filter(t => t.id !== id));
       }
       if (type === 'customer') {
         await api.customers.delete(id);
-        setCustomers(customers.filter(c => c.id !== id));
+        setCustomers(prev => prev.filter(c => c.id !== id));
       }
       if (type === 'location') {
-        await api.locationEntries.delete(id);
-        setLocationEntries(locationEntries.filter(e => e.id !== id));
-        setLocationInventoryEntries(locationInventoryEntries.filter(e => e.id !== id));
+        const qrcode = deleteTarget?.qrcode;
+        if (qrcode) {
+          await api.locationEntries.deleteByQRCode(qrcode);
+          setLocationEntries(prev => prev.filter(e => e.qrcode !== qrcode));
+          setLocationInventoryEntries(prev => prev.filter(e => e.qrcode !== qrcode));
+        } else {
+          await api.locationEntries.delete(id);
+          setLocationEntries(prev => prev.filter(e => e.id !== id));
+          setLocationInventoryEntries(prev => prev.filter(e => e.id !== id));
+        }
       }
       if (type === 'savedDeliveryNote') {
         await api.savedDeliveryNotes.delete(id);
-        setSavedDeliveryNotes(savedDeliveryNotes.filter(n => n.id !== id));
+        setSavedDeliveryNotes(prev => prev.filter(n => n.id !== id));
       }
     } catch (error) {
       console.error('Error syncing deletion:', error);
+      alert('Không thể xóa mục này. Vui lòng thử lại.');
     }
   };
 
@@ -537,18 +630,24 @@ export default function App() {
     try {
       if (activeTab === 'inventory') {
         await Promise.all(selectedRows.map(id => api.products.delete(id)));
-        setProducts(products.filter(p => !selectedRows.includes(p.id)));
+        setProducts(prev => prev.filter(p => !selectedRows.includes(p.id)));
       }
       if (activeTab === 'inbound' || activeTab === 'outbound') {
         await Promise.all(selectedRows.map(id => api.transactions.delete(id)));
-        setTransactions(transactions.filter(t => !selectedRows.includes(t.id)));
+        setTransactions(prev => prev.filter(t => !selectedRows.includes(t.id)));
       }
       if (activeTab === 'customers') {
         await Promise.all(selectedRows.map(id => api.customers.delete(id)));
-        setCustomers(customers.filter(c => !selectedRows.includes(c.id)));
+        setCustomers(prev => prev.filter(c => !selectedRows.includes(c.id)));
+      }
+      if (activeTab === 'location') {
+        await Promise.all(selectedRows.map(id => api.locationEntries.delete(id)));
+        setLocationEntries(prev => prev.filter(e => !selectedRows.includes(e.id)));
+        setLocationInventoryEntries(prev => prev.filter(e => !selectedRows.includes(e.id)));
       }
     } catch (error) {
       console.error('Error syncing bulk deletion:', error);
+      alert('Không thể xóa các mục đã chọn. Vui lòng thử lại.');
     }
     setSelectedRows([]);
   };
@@ -580,12 +679,12 @@ export default function App() {
     }
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteTarget) return;
     if (deleteTarget.id === 'bulk') {
-      handleBulkDelete();
+      await handleBulkDelete();
     } else {
-      handleDelete(deleteTarget.id, deleteTarget.type);
+      await handleDelete(deleteTarget.id, deleteTarget.type);
     }
     setIsDeleteConfirmOpen(false);
     setDeleteTarget(null);
@@ -670,23 +769,81 @@ export default function App() {
 
   const filteredLocationEntries = useMemo(() => {
     const query = locationSearch.toLowerCase();
-    return locationEntries.filter(entry => 
-      entry.sku.toLowerCase().includes(query) ||
-      entry.partner.toLowerCase().includes(query) ||
-      entry.location.toLowerCase().includes(query) ||
-      entry.qrcode.toLowerCase().includes(query) ||
-      entry.note.toLowerCase().includes(query)
+    
+    // Group by QRCODE
+    const groupedMap = new Map<string, LocationEntry>();
+    
+    locationEntries.forEach(entry => {
+      const qrcode = entry.qrcode;
+      if (groupedMap.has(qrcode)) {
+        const existing = groupedMap.get(qrcode)!;
+        
+        // Merge locations
+        const currentLocs = (existing.location || '').split(',').map(l => l.trim()).filter(Boolean);
+        const newLoc = (entry.location || '').trim();
+        if (newLoc && !currentLocs.includes(newLoc)) {
+          existing.location = currentLocs.length > 0 ? `${existing.location}, ${newLoc}` : newLoc;
+        }
+        
+        // Merge notes
+        const currentNotes = (existing.note || '').split(',').map(n => n.trim()).filter(Boolean);
+        const newNote = (entry.note || '').trim();
+        if (newNote && !currentNotes.includes(newNote)) {
+          existing.note = currentNotes.length > 0 ? `${existing.note}, ${newNote}` : newNote;
+        }
+      } else {
+        groupedMap.set(qrcode, { ...entry });
+      }
+    });
+
+    const groupedEntries = Array.from(groupedMap.values());
+
+    return groupedEntries.filter(entry => 
+      (entry.sku || '').toLowerCase().includes(query) ||
+      (entry.partner || '').toLowerCase().includes(query) ||
+      (entry.location || '').toLowerCase().includes(query) ||
+      (entry.qrcode || '').toLowerCase().includes(query) ||
+      (entry.note || '').toLowerCase().includes(query)
     );
   }, [locationEntries, locationSearch]);
 
   const filteredLocationInventoryEntries = useMemo(() => {
     const query = locationSearch.toLowerCase();
-    return locationInventoryEntries.filter(entry => 
-      entry.sku.toLowerCase().includes(query) ||
-      entry.partner.toLowerCase().includes(query) ||
-      entry.location.toLowerCase().includes(query) ||
-      entry.qrcode.toLowerCase().includes(query) ||
-      entry.note.toLowerCase().includes(query)
+    
+    // Group by QRCODE
+    const groupedMap = new Map<string, LocationEntry>();
+    
+    locationInventoryEntries.forEach(entry => {
+      const qrcode = entry.qrcode;
+      if (groupedMap.has(qrcode)) {
+        const existing = groupedMap.get(qrcode)!;
+        
+        // Merge locations
+        const currentLocs = (existing.location || '').split(',').map(l => l.trim()).filter(Boolean);
+        const newLoc = (entry.location || '').trim();
+        if (newLoc && !currentLocs.includes(newLoc)) {
+          existing.location = currentLocs.length > 0 ? `${existing.location}, ${newLoc}` : newLoc;
+        }
+        
+        // Merge notes
+        const currentNotes = (existing.note || '').split(',').map(n => n.trim()).filter(Boolean);
+        const newNote = (entry.note || '').trim();
+        if (newNote && !currentNotes.includes(newNote)) {
+          existing.note = currentNotes.length > 0 ? `${existing.note}, ${newNote}` : newNote;
+        }
+      } else {
+        groupedMap.set(qrcode, { ...entry });
+      }
+    });
+
+    const groupedEntries = Array.from(groupedMap.values());
+
+    return groupedEntries.filter(entry => 
+      (entry.sku || '').toLowerCase().includes(query) ||
+      (entry.partner || '').toLowerCase().includes(query) ||
+      (entry.location || '').toLowerCase().includes(query) ||
+      (entry.qrcode || '').toLowerCase().includes(query) ||
+      (entry.note || '').toLowerCase().includes(query)
     );
   }, [locationInventoryEntries, locationSearch]);
 
@@ -1050,8 +1207,8 @@ export default function App() {
             sku: String(row[1] || '').trim() || parsed?.sku || '',
             partner: String(row[2] || '').trim() || parsed?.partner || '',
             date: String(row[3] || '').trim() || parsed?.date || '',
-            location: String(row[4] || '').trim(),
-            note: String(row[5] || '').trim(),
+            note: String(row[4] || '').trim(), // Cuộn (Note)
+            location: String(row[5] || '').trim(), // Vị trí (Location)
           });
         }
       } else if (currentSection === 'OUTPUT') {
@@ -1126,30 +1283,32 @@ export default function App() {
             type: 'inventory'
           }));
           
-          // Merge with existing inventory entries
-          const grouped = new Map<string, LocationEntry>();
-          locationInventoryEntries.forEach(entry => {
-            const key = `${entry.qrcode}|${entry.location}`;
-            grouped.set(key, { ...entry });
+          // Merge with existing inventory entries using functional update
+          setLocationInventoryEntries(prev => {
+            const grouped = new Map<string, LocationEntry>();
+            prev.forEach(entry => {
+              const key = `${entry.qrcode}|${entry.location || ''}`;
+              grouped.set(key, { ...entry });
+            });
+            
+            newEntries.forEach(entry => {
+              const key = `${entry.qrcode}|${entry.location || ''}`;
+              if (grouped.has(key)) {
+                const existing = grouped.get(key)!;
+                // Update fields if they were empty in the existing entry
+                if (!existing.sku) existing.sku = entry.sku;
+                if (!existing.partner) existing.partner = entry.partner;
+                if (!existing.date) existing.date = entry.date;
+                if (!existing.note) existing.note = entry.note;
+              } else {
+                grouped.set(key, entry);
+              }
+            });
+            
+            const finalEntries = Array.from(grouped.values());
+            api.locationEntries.upsertAll(finalEntries).catch(err => console.error('Error syncing location inventory:', err));
+            return finalEntries;
           });
-          
-          newEntries.forEach(entry => {
-            const key = `${entry.qrcode}|${entry.location}`;
-            if (grouped.has(key)) {
-              const existing = grouped.get(key)!;
-              // Update fields if they were empty in the existing entry
-              if (!existing.sku) existing.sku = entry.sku;
-              if (!existing.partner) existing.partner = entry.partner;
-              if (!existing.date) existing.date = entry.date;
-              if (!existing.note) existing.note = entry.note;
-            } else {
-              grouped.set(key, entry);
-            }
-          });
-          
-          const finalEntries = Array.from(grouped.values());
-          setLocationInventoryEntries(finalEntries);
-          api.locationEntries.upsertAll(finalEntries).catch(err => console.error('Error syncing location inventory:', err));
         } else {
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
@@ -2898,7 +3057,7 @@ export default function App() {
                                       </button>
                                       <button 
                                         onClick={() => {
-                                          setDeleteTarget({ id: entry.id, type: 'location' });
+                                          setDeleteTarget({ id: entry.id, type: 'location', qrcode: entry.qrcode });
                                           setIsDeleteConfirmOpen(true);
                                         }}
                                         className="p-1 hover:bg-gray-200 rounded transition-colors text-red-600"
@@ -2969,7 +3128,7 @@ export default function App() {
                                   </button>
                                   <button 
                                     onClick={() => {
-                                      setDeleteTarget({ id: entry.id, type: 'location' });
+                                      setDeleteTarget({ id: entry.id, type: 'location', qrcode: entry.qrcode });
                                       setIsDeleteConfirmOpen(true);
                                     }}
                                     className="p-1 hover:bg-gray-200 rounded transition-colors text-red-600"
@@ -3014,12 +3173,13 @@ export default function App() {
                     onChange={(e) => {
                       const qrcode = e.target.value;
                       const parsed = parseQRCode(qrcode);
+                      const isSimpleAWB = qrcode.toUpperCase().startsWith('AWB-') && !qrcode.includes('|');
                       setNewLocationEntry({
                         ...newLocationEntry,
                         qrcode,
                         sku: parsed?.sku || newLocationEntry.sku,
                         partner: parsed?.partner || newLocationEntry.partner,
-                        date: parsed?.date || newLocationEntry.date
+                        date: isSimpleAWB ? '' : (parsed?.date || newLocationEntry.date)
                       });
                     }}
                     className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors font-mono"

@@ -152,6 +152,11 @@ export const api = {
       const { error } = await supabase.from('location_entries').delete().eq('id', id);
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
+    },
+    async deleteByQRCode(qrcode: string): Promise<void> {
+      const { error } = await supabase.from('location_entries').delete().eq('qrcode', qrcode);
+      if (error) throw error;
+      localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
     }
   },
   savedDeliveryNotes: {
