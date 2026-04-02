@@ -63,7 +63,7 @@ export default function App() {
     date: format(new Date(), 'dd/MM/yyyy')
   });
   const [deliveryNoteSubTab, setDeliveryNoteSubTab] = useState<'draft' | 'preview' | 'history'>('preview');
-  const [locationSubTab, setLocationSubTab] = useState<'input' | 'inventory'>('input');
+  const [locationSubTab, setLocationSubTab] = useState<'input' | 'output' | 'inventory'>('input');
   const [locationSearch, setLocationSearch] = useState('');
   const [currentLocation, setCurrentLocation] = useState('');
   const [scanMode, setScanMode] = useState<'INPUT' | 'OUTPUT'>('INPUT');
@@ -84,7 +84,7 @@ export default function App() {
   const [tempDeliveryNoteItem, setTempDeliveryNoteItem] = useState<Partial<DeliveryNoteItem>>({});
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [newLocationEntry, setNewLocationEntry] = useState<Partial<LocationEntry>>({
-    qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: ''
+    qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: '', quantity: 1
   });
   const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk', type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote', qrcode?: string } | null>(null);
   const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(INITIAL_SUPABASE_CONFIGURED);
@@ -110,6 +110,10 @@ export default function App() {
       return v.toString(16);
     });
   }, []);
+
+  React.useEffect(() => {
+    setSelectedRows([]);
+  }, [activeTab, locationSubTab]);
 
   // Load data from Supabase on start
   React.useEffect(() => {
@@ -398,8 +402,8 @@ export default function App() {
     e.preventDefault();
     let updatedEntry: LocationEntry;
     if (editingId) {
-      updatedEntry = { ...newLocationEntry, id: editingId, type: locationSubTab } as LocationEntry;
-      if (locationSubTab === 'input') {
+      updatedEntry = { ...newLocationEntry, id: editingId, type: locationSubTab === 'inventory' ? 'inventory' : 'input' } as LocationEntry;
+      if (locationSubTab === 'input' || locationSubTab === 'output') {
         setLocationEntries(locationEntries.map(entry => entry.id === editingId ? updatedEntry : entry));
       } else {
         setLocationInventoryEntries(locationInventoryEntries.map(entry => entry.id === editingId ? updatedEntry : entry));
@@ -419,6 +423,7 @@ export default function App() {
             partner: newLocationEntry.partner || existing.partner,
             date: newLocationEntry.date || existing.date,
             note: newLocationEntry.note || existing.note,
+            quantity: (existing.quantity || 0) + (newLocationEntry.quantity || 0),
           };
           setLocationInventoryEntries(prev => prev.map((e, i) => i === existingIndex ? updatedEntry : e));
           setEditingId(null);
@@ -426,17 +431,17 @@ export default function App() {
           updatedEntry = {
             ...newLocationEntry as LocationEntry,
             id: generateId(),
-            type: locationSubTab
+            type: locationSubTab === 'inventory' ? 'inventory' : 'input'
           };
           setLocationInventoryEntries(prev => [...prev, updatedEntry]);
         }
       } else {
-        // locationSubTab === 'input'
+        // locationSubTab === 'input' || locationSubTab === 'output'
         updatedEntry = {
           ...newLocationEntry as LocationEntry,
           id: generateId(),
           type: 'input',
-          scanType: 'INPUT'
+          scanType: scanMode
         };
         setLocationEntries([updatedEntry, ...locationEntries]);
 
@@ -445,32 +450,62 @@ export default function App() {
           entry => entry.qrcode === newLocationEntry.qrcode && entry.location === newLocationEntry.location
         );
 
-        if (existingIndex >= 0) {
-          const existing = locationInventoryEntries[existingIndex];
-          const updatedInventoryEntry: LocationEntry = {
-            ...existing,
-            sku: newLocationEntry.sku || existing.sku,
-            partner: newLocationEntry.partner || existing.partner,
-            date: newLocationEntry.date || existing.date,
-            note: newLocationEntry.note || existing.note,
-          };
-          setLocationInventoryEntries(prev => prev.map((e, i) => i === existingIndex ? updatedInventoryEntry : e));
-          try {
-            await api.locationEntries.upsert(updatedInventoryEntry);
-          } catch (error) {
-            console.error('Error syncing inventory entry:', error);
+        if (scanMode === 'INPUT') {
+          if (existingIndex >= 0) {
+            const existing = locationInventoryEntries[existingIndex];
+            const updatedInventoryEntry: LocationEntry = {
+              ...existing,
+              sku: newLocationEntry.sku || existing.sku,
+              partner: newLocationEntry.partner || existing.partner,
+              date: newLocationEntry.date || existing.date,
+              note: newLocationEntry.note || existing.note,
+              quantity: (existing.quantity || 0) + (newLocationEntry.quantity || 0),
+            };
+            setLocationInventoryEntries(prev => prev.map((e, i) => i === existingIndex ? updatedInventoryEntry : e));
+            try {
+              await api.locationEntries.upsert(updatedInventoryEntry);
+            } catch (error) {
+              console.error('Error syncing inventory entry:', error);
+            }
+          } else {
+            const newInventoryEntry: LocationEntry = {
+              ...newLocationEntry as LocationEntry,
+              id: generateId(),
+              type: 'inventory'
+            };
+            setLocationInventoryEntries(prev => [newInventoryEntry, ...prev]);
+            try {
+              await api.locationEntries.upsert(newInventoryEntry);
+            } catch (error) {
+              console.error('Error syncing inventory entry:', error);
+            }
           }
-        } else {
-          const newInventoryEntry: LocationEntry = {
-            ...newLocationEntry as LocationEntry,
-            id: generateId(),
-            type: 'inventory'
-          };
-          setLocationInventoryEntries(prev => [newInventoryEntry, ...prev]);
-          try {
-            await api.locationEntries.upsert(newInventoryEntry);
-          } catch (error) {
-            console.error('Error syncing inventory entry:', error);
+        } else if (scanMode === 'OUTPUT') {
+          if (existingIndex >= 0) {
+            const existing = locationInventoryEntries[existingIndex];
+            const newQty = (existing.quantity || 0) - (newLocationEntry.quantity || 0);
+            
+            if (newQty <= 0) {
+              // Remove if fully exported
+              setLocationInventoryEntries(prev => prev.filter((_, i) => i !== existingIndex));
+              try {
+                await api.locationEntries.delete(existing.id);
+              } catch (error) {
+                console.error('Error deleting inventory entry:', error);
+              }
+            } else {
+              // Update with remaining quantity
+              const updatedInventoryEntry: LocationEntry = {
+                ...existing,
+                quantity: newQty
+              };
+              setLocationInventoryEntries(prev => prev.map((e, i) => i === existingIndex ? updatedInventoryEntry : e));
+              try {
+                await api.locationEntries.upsert(updatedInventoryEntry);
+              } catch (error) {
+                console.error('Error updating inventory entry:', error);
+              }
+            }
           }
         }
       }
@@ -507,16 +542,18 @@ export default function App() {
         partner: normalizedRow['partner'] || normalizedRow['đối tác'] || row['Đối tác'] || row['partner'] || parsed?.partner || '',
         date: normalizedRow['date'] || normalizedRow['ngày'] || row['Ngày'] || row['date'] || parsed?.date || defaultDate,
         location: normalizedRow['location'] || normalizedRow['vị trí'] || normalizedRow['vi tri'] || row['Vị trí'] || row['location'] || '',
-        note: normalizedRow['note'] || normalizedRow['ghi chú'] || normalizedRow['cuộn'] || normalizedRow['cuon'] || row['Cuộn'] || row['Ghi chú'] || row['note'] || ''
+        note: normalizedRow['note'] || normalizedRow['ghi chú'] || normalizedRow['cuộn'] || normalizedRow['cuon'] || row['Cuộn'] || row['Ghi chú'] || row['note'] || '',
+        quantity: parseInt(normalizedRow['quantity'] || normalizedRow['số lượng'] || normalizedRow['so luong'] || row['Số lượng'] || row['quantity'] || '1') || 1
       };
     });
 
     // Update location log (locationEntries) - Keep as a log (don't group) to match manual scan behavior
+    const currentScanType = locationSubTab === 'output' ? 'OUTPUT' : 'INPUT';
     const logEntriesToAdd: LocationEntry[] = newEntries.map(entry => ({
       ...entry,
       id: generateId(),
       type: 'input',
-      scanType: 'INPUT'
+      scanType: currentScanType
     }));
 
     setLocationEntries(prev => [...logEntriesToAdd, ...prev]);
@@ -534,19 +571,29 @@ export default function App() {
       newEntries.forEach(entry => {
         if (entry.qrcode) {
           const key = `${entry.qrcode}|${entry.location || ''}`;
-          if (inventoryGrouped.has(key)) {
-            const existing = inventoryGrouped.get(key)!;
-            // Update fields if they were empty in the existing entry
-            if (!existing.sku) existing.sku = entry.sku;
-            if (!existing.partner) existing.partner = entry.partner;
-            if (!existing.date) existing.date = entry.date;
-            if (!existing.note) existing.note = entry.note;
-          } else {
-            inventoryGrouped.set(key, { 
-              ...entry, 
-              id: generateId(), 
-              type: 'inventory' 
-            });
+          if (currentScanType === 'INPUT') {
+            if (inventoryGrouped.has(key)) {
+              const existing = inventoryGrouped.get(key)!;
+              existing.sku = entry.sku || existing.sku;
+              existing.partner = entry.partner || existing.partner;
+              existing.date = entry.date || existing.date;
+              existing.note = entry.note || existing.note;
+              existing.quantity = (existing.quantity || 0) + (entry.quantity || 0);
+            } else {
+              inventoryGrouped.set(key, { 
+                ...entry, 
+                id: generateId(), 
+                type: 'inventory' 
+              });
+            }
+          } else if (currentScanType === 'OUTPUT') {
+            if (inventoryGrouped.has(key)) {
+              const existing = inventoryGrouped.get(key)!;
+              existing.quantity = (existing.quantity || 0) - (entry.quantity || 0);
+              if (existing.quantity <= 0) {
+                inventoryGrouped.delete(key);
+              }
+            }
           }
         }
       });
@@ -557,33 +604,52 @@ export default function App() {
     
     try {
       // Sync to Supabase
-      // We use a small delay to ensure finalInventoryEntries is populated from the functional update
-      // or we can just calculate it separately for the API call.
+      // We use the final state from setLocationInventoryEntries to ensure correctness
+      // But since setLocationInventoryEntries is async, we calculate it here too
       const inventoryGroupedForApi = new Map<string, LocationEntry>();
       locationInventoryEntries.forEach(entry => {
         const key = `${entry.qrcode}|${entry.location || ''}`;
         inventoryGroupedForApi.set(key, { ...entry });
       });
+      
       newEntries.forEach(entry => {
         if (entry.qrcode) {
           const key = `${entry.qrcode}|${entry.location || ''}`;
-          if (inventoryGroupedForApi.has(key)) {
-            const existing = inventoryGroupedForApi.get(key)!;
-            if (!existing.sku) existing.sku = entry.sku;
-            if (!existing.partner) existing.partner = entry.partner;
-            if (!existing.date) existing.date = entry.date;
-            if (!existing.note) existing.note = entry.note;
-          } else {
-            inventoryGroupedForApi.set(key, { ...entry, id: generateId(), type: 'inventory' });
+          if (currentScanType === 'INPUT') {
+            if (inventoryGroupedForApi.has(key)) {
+              const existing = inventoryGroupedForApi.get(key)!;
+              existing.sku = entry.sku || existing.sku;
+              existing.partner = entry.partner || existing.partner;
+              existing.date = entry.date || existing.date;
+              existing.note = entry.note || existing.note;
+              existing.quantity = (existing.quantity || 0) + (entry.quantity || 0);
+            } else {
+              inventoryGroupedForApi.set(key, { ...entry, id: generateId(), type: 'inventory' });
+            }
+          } else if (currentScanType === 'OUTPUT') {
+            if (inventoryGroupedForApi.has(key)) {
+              const existing = inventoryGroupedForApi.get(key)!;
+              existing.quantity = (existing.quantity || 0) - (entry.quantity || 0);
+              if (existing.quantity <= 0) {
+                inventoryGroupedForApi.delete(key);
+              }
+            }
           }
         }
       });
       
       const apiInventoryEntries = Array.from(inventoryGroupedForApi.values());
+      
+      // Find entries that were removed to delete them from DB
+      const prevKeys = new Set(locationInventoryEntries.map(e => `${e.qrcode}|${e.location || ''}`));
+      const currentKeys = new Set(apiInventoryEntries.map(e => `${e.qrcode}|${e.location || ''}`));
+      const keysToDelete = Array.from(prevKeys).filter((k: string) => !currentKeys.has(k));
+      const entriesToDelete = locationInventoryEntries.filter(e => keysToDelete.includes(`${e.qrcode}|${e.location || ''}`));
 
       await Promise.all([
         api.locationEntries.upsertAll(logEntriesToAdd),
-        api.locationEntries.upsertAll(apiInventoryEntries)
+        api.locationEntries.upsertAll(apiInventoryEntries),
+        ...entriesToDelete.map(e => api.locationEntries.delete(e.id))
       ]);
     } catch (error) {
       console.error('Error syncing location entries:', error);
@@ -629,8 +695,13 @@ export default function App() {
   const handleBulkDelete = async () => {
     try {
       if (activeTab === 'inventory') {
-        await Promise.all(selectedRows.map(id => api.products.delete(id)));
-        setProducts(prev => prev.filter(p => !selectedRows.includes(p.id)));
+        const productIdsToDelete = selectedRows.map(batchKey => {
+          const item = inventory.find(i => i.id === batchKey);
+          return item?.productId;
+        }).filter(Boolean) as string[];
+        
+        await Promise.all(productIdsToDelete.map(id => api.products.delete(id)));
+        setProducts(prev => prev.filter(p => !productIdsToDelete.includes(p.id)));
       }
       if (activeTab === 'inbound' || activeTab === 'outbound') {
         await Promise.all(selectedRows.map(id => api.transactions.delete(id)));
@@ -641,9 +712,21 @@ export default function App() {
         setCustomers(prev => prev.filter(c => !selectedRows.includes(c.id)));
       }
       if (activeTab === 'location') {
-        await Promise.all(selectedRows.map(id => api.locationEntries.delete(id)));
-        setLocationEntries(prev => prev.filter(e => !selectedRows.includes(e.id)));
-        setLocationInventoryEntries(prev => prev.filter(e => !selectedRows.includes(e.id)));
+        if (locationSubTab === 'input' || locationSubTab === 'output') {
+          // Only delete specific log entries
+          await Promise.all(selectedRows.map(id => api.locationEntries.delete(id)));
+          setLocationEntries(prev => prev.filter(e => !selectedRows.includes(e.id)));
+        } else {
+          // Delete by QR code for inventory view
+          const qrcodesToDelete = selectedRows.map(id => {
+            const entry = locationInventoryEntries.find(e => e.id === id);
+            return entry?.qrcode;
+          }).filter(Boolean) as string[];
+
+          await Promise.all(qrcodesToDelete.map(qrcode => api.locationEntries.deleteByQRCode(qrcode)));
+          setLocationEntries(prev => prev.filter(e => !qrcodesToDelete.includes(e.qrcode)));
+          setLocationInventoryEntries(prev => prev.filter(e => !qrcodesToDelete.includes(e.qrcode)));
+        }
       }
     } catch (error) {
       console.error('Error syncing bulk deletion:', error);
@@ -769,43 +852,19 @@ export default function App() {
 
   const filteredLocationEntries = useMemo(() => {
     const query = locationSearch.toLowerCase();
+    const currentScanType = locationSubTab === 'input' ? 'INPUT' : 'OUTPUT';
     
-    // Group by QRCODE
-    const groupedMap = new Map<string, LocationEntry>();
-    
-    locationEntries.forEach(entry => {
-      const qrcode = entry.qrcode;
-      if (groupedMap.has(qrcode)) {
-        const existing = groupedMap.get(qrcode)!;
-        
-        // Merge locations
-        const currentLocs = (existing.location || '').split(',').map(l => l.trim()).filter(Boolean);
-        const newLoc = (entry.location || '').trim();
-        if (newLoc && !currentLocs.includes(newLoc)) {
-          existing.location = currentLocs.length > 0 ? `${existing.location}, ${newLoc}` : newLoc;
-        }
-        
-        // Merge notes
-        const currentNotes = (existing.note || '').split(',').map(n => n.trim()).filter(Boolean);
-        const newNote = (entry.note || '').trim();
-        if (newNote && !currentNotes.includes(newNote)) {
-          existing.note = currentNotes.length > 0 ? `${existing.note}, ${newNote}` : newNote;
-        }
-      } else {
-        groupedMap.set(qrcode, { ...entry });
-      }
+    return locationEntries.filter(entry => {
+      const matchesSearch = (entry.sku || '').toLowerCase().includes(query) ||
+        (entry.partner || '').toLowerCase().includes(query) ||
+        (entry.location || '').toLowerCase().includes(query) ||
+        (entry.qrcode || '').toLowerCase().includes(query) ||
+        (entry.note || '').toLowerCase().includes(query);
+      
+      if (locationSubTab === 'inventory') return matchesSearch;
+      return matchesSearch && entry.scanType === currentScanType;
     });
-
-    const groupedEntries = Array.from(groupedMap.values());
-
-    return groupedEntries.filter(entry => 
-      (entry.sku || '').toLowerCase().includes(query) ||
-      (entry.partner || '').toLowerCase().includes(query) ||
-      (entry.location || '').toLowerCase().includes(query) ||
-      (entry.qrcode || '').toLowerCase().includes(query) ||
-      (entry.note || '').toLowerCase().includes(query)
-    );
-  }, [locationEntries, locationSearch]);
+  }, [locationEntries, locationSearch, locationSubTab]);
 
   const filteredLocationInventoryEntries = useMemo(() => {
     const query = locationSearch.toLowerCase();
@@ -831,6 +890,9 @@ export default function App() {
         if (newNote && !currentNotes.includes(newNote)) {
           existing.note = currentNotes.length > 0 ? `${existing.note}, ${newNote}` : newNote;
         }
+
+        // Sum quantities
+        existing.quantity = (existing.quantity || 0) + (entry.quantity || 0);
       } else {
         groupedMap.set(qrcode, { ...entry });
       }
@@ -1209,6 +1271,7 @@ export default function App() {
             date: String(row[3] || '').trim() || parsed?.date || '',
             note: String(row[4] || '').trim(), // Cuộn (Note)
             location: String(row[5] || '').trim(), // Vị trí (Location)
+            quantity: parseInt(String(row[6] || '1')) || 1
           });
         }
       } else if (currentSection === 'OUTPUT') {
@@ -1219,7 +1282,7 @@ export default function App() {
       }
     });
 
-    // Filter out outputted QR codes
+    // Filter out outputted QR codes from the input list in the same sheet
     const filtered = inputEntries.filter(entry => !outputQRCodes.has(entry.qrcode));
     
     // Group by QR code and location to prevent duplicates
@@ -1235,10 +1298,14 @@ export default function App() {
         if (!existing.partner) existing.partner = entry.partner;
         if (!existing.date) existing.date = entry.date;
         if (!existing.note) existing.note = entry.note;
+        existing.quantity = (existing.quantity || 0) + (entry.quantity || 0);
       }
     });
 
-    return Array.from(grouped.values());
+    return {
+      entries: Array.from(grouped.values()),
+      outputQRCodes: Array.from(outputQRCodes)
+    };
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1275,7 +1342,7 @@ export default function App() {
           const sheetName = workbook.SheetNames[2] || workbook.SheetNames[0];
           const worksheet = workbook.Sheets[sheetName];
           const sheetData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-          const processedData = processLocationStockSheet(sheetData);
+          const { entries: processedData, outputQRCodes } = processLocationStockSheet(sheetData);
           
           const newEntries: LocationEntry[] = processedData.map((item, index) => ({
             id: generateId(),
@@ -1288,7 +1355,10 @@ export default function App() {
             const grouped = new Map<string, LocationEntry>();
             prev.forEach(entry => {
               const key = `${entry.qrcode}|${entry.location || ''}`;
-              grouped.set(key, { ...entry });
+              // Only keep entries that are NOT in the output list
+              if (!outputQRCodes.includes(entry.qrcode)) {
+                grouped.set(key, { ...entry });
+              }
             });
             
             newEntries.forEach(entry => {
@@ -1300,13 +1370,31 @@ export default function App() {
                 if (!existing.partner) existing.partner = entry.partner;
                 if (!existing.date) existing.date = entry.date;
                 if (!existing.note) existing.note = entry.note;
+                existing.quantity = (existing.quantity || 0) + (entry.quantity || 0);
               } else {
                 grouped.set(key, entry);
               }
             });
             
             const finalEntries = Array.from(grouped.values());
-            api.locationEntries.upsertAll(finalEntries).catch(err => console.error('Error syncing location inventory:', err));
+            
+            // Sync to Supabase
+            (async () => {
+              try {
+                // For output: delete from DB
+                const entriesToDelete = prev.filter(e => outputQRCodes.includes(e.qrcode));
+                if (entriesToDelete.length > 0) {
+                  await Promise.all(entriesToDelete.map(e => api.locationEntries.delete(e.id)));
+                }
+                // For input: upsert to DB
+                if (finalEntries.length > 0) {
+                  await api.locationEntries.upsertAll(finalEntries);
+                }
+              } catch (error) {
+                console.error('Error syncing Excel location data:', error);
+              }
+            })();
+
             return finalEntries;
           });
         } else {
@@ -1739,7 +1827,11 @@ export default function App() {
             {selectedRows.length > 0 && (
               <button 
                 onClick={() => {
-                  setDeleteTarget({ id: 'bulk', type: activeTab === 'inventory' ? 'product' : (activeTab === 'customers' ? 'customer' : 'transaction') });
+                  const type = activeTab === 'inventory' ? 'product' : 
+                               activeTab === 'customers' ? 'customer' : 
+                               activeTab === 'location' ? 'location' : 
+                               'transaction';
+                  setDeleteTarget({ id: 'bulk', type });
                   setIsDeleteConfirmOpen(true);
                 }}
                 className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-red-700 transition-colors"
@@ -2790,6 +2882,15 @@ export default function App() {
                         NHẬP VỊ TRÍ
                       </button>
                       <button
+                        onClick={() => setLocationSubTab('output')}
+                        className={cn(
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2",
+                          locationSubTab === 'output' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
+                        )}
+                      >
+                        XUẤT VỊ TRÍ
+                      </button>
+                      <button
                         onClick={() => setLocationSubTab('inventory')}
                         className={cn(
                           "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2",
@@ -2814,7 +2915,12 @@ export default function App() {
                     <button 
                       onClick={() => {
                         setEditingId(null);
-                        setNewLocationEntry({ qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: '' });
+                        setNewLocationEntry({ qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: '', quantity: 1 });
+                        if (locationSubTab === 'output') {
+                          setScanMode('OUTPUT');
+                        } else {
+                          setScanMode('INPUT');
+                        }
                         setIsLocationModalOpen(true);
                       }}
                       className="flex items-center gap-2 px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
@@ -2832,173 +2938,28 @@ export default function App() {
                   </div>
                 </div>
 
-                {locationSubTab === 'input' && (
+                {(locationSubTab === 'input' || locationSubTab === 'output') && (
                   <div className="space-y-4">
-                    <div className="flex items-center gap-4 bg-yellow-50 p-4 border border-yellow-200">
-                      <div className="flex-1">
-                        <label className="text-[10px] uppercase font-bold text-yellow-800 block mb-1">QUÉT MÃ VẠCH (VỊ TRÍ HOẶC QRCODE HÀNG)</label>
-                        <textarea 
-                          rows={3}
-                          placeholder="Quét mã vị trí (FB...) hoặc QR code hàng... (Hỗ trợ INPUT/OUTPUT)"
-                          className="w-full bg-white border border-yellow-400 py-2 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-600 font-mono resize-none"
-                          onKeyDown={async (e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              const text = e.currentTarget.value.trim();
-                              if (!text) return;
-                              
-                              const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-                              let tempMode = scanMode;
-                              let tempLocation = currentLocation;
-                              
-                              const newInventoryEntries = [...locationInventoryEntries];
-                              const newLogEntries = [...locationEntries];
-                              let changed = false;
-                              let logChanged = false;
-
-                              for (const line of lines) {
-                                const upperLine = line.toUpperCase();
-                                if (upperLine === 'INPUT') {
-                                  tempMode = 'INPUT';
-                                  setScanMode('INPUT');
-                                  continue;
-                                }
-                                if (upperLine === 'OUTPUT') {
-                                  tempMode = 'OUTPUT';
-                                  setScanMode('OUTPUT');
-                                  continue;
-                                }
-                                
-                                if (upperLine.startsWith('FB')) {
-                                  tempLocation = line;
-                                  setCurrentLocation(line);
-                                  continue;
-                                }
-                                
-                                const parsed = parseQRCode(line);
-                                if (parsed) {
-                                  const logEntry: LocationEntry = {
-                                    id: generateId(),
-                                    qrcode: line,
-                                    sku: parsed.sku,
-                                    partner: parsed.partner,
-                                    date: parsed.date,
-                                    location: tempLocation,
-                                    note: '',
-                                    type: 'input',
-                                    scanType: tempMode
-                                  };
-                                  newLogEntries.unshift(logEntry);
-                                  logChanged = true;
-                                  try {
-                                    await api.locationEntries.upsert(logEntry);
-                                  } catch (error) {
-                                    console.error('Error syncing log entry:', error);
-                                  }
-
-                                  if (tempMode === 'INPUT') {
-                                    // Merge if duplicate in inventory
-                                    const existingIndex = newInventoryEntries.findIndex(
-                                      entry => entry.qrcode === line && entry.location === tempLocation
-                                    );
-
-                                    if (existingIndex >= 0) {
-                                      const existing = newInventoryEntries[existingIndex];
-                                      const updatedEntry: LocationEntry = {
-                                        ...existing,
-                                        sku: parsed.sku || existing.sku,
-                                        partner: parsed.partner || existing.partner,
-                                        date: parsed.date || existing.date,
-                                      };
-                                      newInventoryEntries[existingIndex] = updatedEntry;
-                                      changed = true;
-                                      try {
-                                        await api.locationEntries.upsert(updatedEntry);
-                                      } catch (error) {
-                                        console.error('Error syncing location entry:', error);
-                                      }
-                                    } else {
-                                      const newEntry: LocationEntry = {
-                                        id: generateId(),
-                                        qrcode: line,
-                                        sku: parsed.sku,
-                                        partner: parsed.partner,
-                                        date: parsed.date,
-                                        location: tempLocation,
-                                        note: '',
-                                        type: 'inventory'
-                                      };
-                                      newInventoryEntries.unshift(newEntry);
-                                      changed = true;
-                                      try {
-                                        await api.locationEntries.upsert(newEntry);
-                                      } catch (error) {
-                                        console.error('Error syncing location entry:', error);
-                                      }
-                                    }
-                                  } else if (tempMode === 'OUTPUT') {
-                                    // Remove from inventory
-                                    const existingIndex = newInventoryEntries.findIndex(
-                                      entry => entry.qrcode === line && entry.location === tempLocation
-                                    );
-                                    if (existingIndex >= 0) {
-                                      const entryToDelete = newInventoryEntries[existingIndex];
-                                      newInventoryEntries.splice(existingIndex, 1);
-                                      changed = true;
-                                      try {
-                                        await api.locationEntries.delete(entryToDelete.id);
-                                      } catch (error) {
-                                        console.error('Error deleting location entry:', error);
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                              
-                              if (changed) {
-                                setLocationInventoryEntries(newInventoryEntries);
-                              }
-                              if (logChanged) {
-                                setLocationEntries(newLogEntries);
-                              }
-                              e.currentTarget.value = '';
-                            }
-                          }}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <div className="bg-white border border-yellow-400 p-2 min-w-[150px]">
-                          <label className="text-[10px] uppercase font-bold text-gray-500 block">CHẾ ĐỘ QUÉT</label>
-                          <div className="flex items-center gap-2">
-                            <div className={cn(
-                              "w-3 h-3 rounded-full",
-                              scanMode === 'INPUT' ? "bg-green-500" : "bg-red-500"
-                            )} />
-                            <span className={cn(
-                              "text-sm font-bold uppercase",
-                              scanMode === 'INPUT' ? "text-green-600" : "text-red-600"
-                            )}>
-                              {scanMode === 'INPUT' ? 'NHẬP VỊ TRÍ' : 'XUẤT VỊ TRÍ'}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="bg-white border border-yellow-400 p-2 min-w-[150px]">
-                          <label className="text-[10px] uppercase font-bold text-gray-500 block">VỊ TRÍ HIỆN TẠI</label>
-                          <span className="text-lg font-bold text-blue-600 font-mono">{currentLocation || 'CHƯA CHỌN'}</span>
-                        </div>
-                      </div>
-                    </div>
-
                     <div className="border border-[#141414] overflow-x-auto">
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
+                          <th className="border border-[#141414] p-3 w-10">
+                            <button onClick={() => {
+                              const currentIds = filteredLocationEntries.map(i => i.id);
+                              if (selectedRows.length === currentIds.length) setSelectedRows([]);
+                              else setSelectedRows(currentIds);
+                            }}>
+                              {selectedRows.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
+                            </button>
+                          </th>
                           <th className="border border-[#141414] p-3 text-left">QRCODE</th>
                           <th className="border border-[#141414] p-3 text-left">Mã</th>
                           <th className="border border-[#141414] p-3 text-left">NCC</th>
                           <th className="border border-[#141414] p-3 text-left">NGÀY</th>
                           <th className="border border-[#141414] p-3 text-left">Cuộn</th>
                           <th className="border border-[#141414] p-3 text-left">Vị trí</th>
+                          <th className="border border-[#141414] p-3 text-right">SL</th>
                           <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
                             Thao tác
                           </th>
@@ -3007,7 +2968,7 @@ export default function App() {
                       <tbody>
                         {filteredLocationEntries.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="border border-[#141414] p-8 text-center italic text-gray-400">
+                            <td colSpan={8} className="border border-[#141414] p-8 text-center italic text-gray-400">
                               Chưa có dữ liệu vị trí. Hãy nhập file Excel.
                             </td>
                           </tr>
@@ -3036,13 +2997,22 @@ export default function App() {
                               }
                               
                               rows.push(
-                                <tr key={entry.id} className="bg-white text-xs hover:bg-gray-50 transition-colors">
+                                <tr key={entry.id} className={cn(
+                                  "bg-white text-xs hover:bg-gray-50 transition-colors",
+                                  selectedRows.includes(entry.id) && "bg-blue-50"
+                                )}>
+                                  <td className="border border-[#141414] p-3 text-center">
+                                    <button onClick={() => toggleRowSelection(entry.id)}>
+                                      {selectedRows.includes(entry.id) ? <CheckSquare size={14} className="text-blue-600" /> : <Square size={14} />}
+                                    </button>
+                                  </td>
                                   <td className="border border-[#141414] p-3 font-mono">{entry.qrcode}</td>
                                   <td className="border border-[#141414] p-3 font-bold">{entry.sku}</td>
                                   <td className="border border-[#141414] p-3">{entry.partner}</td>
                                   <td className="border border-[#141414] p-3">{entry.date}</td>
                                   <td className="border border-[#141414] p-3 italic">{entry.note}</td>
                                   <td className="border border-[#141414] p-3 font-bold text-blue-600">{entry.location}</td>
+                                  <td className="border border-[#141414] p-3 text-right font-bold">{entry.quantity}</td>
                                   <td className="border border-[#141414] p-3 text-center">
                                     <div className="flex items-center justify-center gap-2">
                                       <button 
@@ -3057,7 +3027,7 @@ export default function App() {
                                       </button>
                                       <button 
                                         onClick={() => {
-                                          setDeleteTarget({ id: entry.id, type: 'location', qrcode: entry.qrcode });
+                                          setDeleteTarget({ id: entry.id, type: 'location' });
                                           setIsDeleteConfirmOpen(true);
                                         }}
                                         className="p-1 hover:bg-gray-200 rounded transition-colors text-red-600"
@@ -3087,12 +3057,22 @@ export default function App() {
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
+                          <th className="border border-[#141414] p-3 w-10">
+                            <button onClick={() => {
+                              const currentIds = filteredLocationInventoryEntries.map(i => i.id);
+                              if (selectedRows.length === currentIds.length) setSelectedRows([]);
+                              else setSelectedRows(currentIds);
+                            }}>
+                              {selectedRows.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
+                            </button>
+                          </th>
                           <th className="border border-[#141414] p-3 text-left">QRCODE</th>
                           <th className="border border-[#141414] p-3 text-left">Mã</th>
                           <th className="border border-[#141414] p-3 text-left">NCC</th>
                           <th className="border border-[#141414] p-3 text-left">NGÀY</th>
                           <th className="border border-[#141414] p-3 text-left">Cuộn</th>
                           <th className="border border-[#141414] p-3 text-left">Vị trí</th>
+                          <th className="border border-[#141414] p-3 text-right">SL</th>
                           <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
                             Thao tác
                           </th>
@@ -3101,19 +3081,30 @@ export default function App() {
                       <tbody>
                         {filteredLocationInventoryEntries.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="border border-[#141414] p-8 text-center italic text-gray-400">
+                            <td colSpan={8} className="border border-[#141414] p-8 text-center italic text-gray-400">
                               Không có dữ liệu tồn theo vị trí. Hãy nhập file Excel (Sheet 3).
                             </td>
                           </tr>
                         ) : (
-                          filteredLocationInventoryEntries.map(entry => (
-                            <tr key={entry.id} className="bg-white text-xs hover:bg-gray-50 transition-colors">
-                              <td className="border border-[#141414] p-3 font-mono">{entry.qrcode}</td>
+                          filteredLocationInventoryEntries.map(entry => {
+                            const isSelected = selectedRows.includes(entry.id);
+                            return (
+                              <tr key={entry.id} className={cn(
+                                "bg-white text-xs hover:bg-gray-50 transition-colors",
+                                isSelected && "bg-blue-50"
+                              )}>
+                                <td className="border border-[#141414] p-3 text-center">
+                                  <button onClick={() => toggleRowSelection(entry.id)}>
+                                    {isSelected ? <CheckSquare size={14} className="text-blue-600" /> : <Square size={14} />}
+                                  </button>
+                                </td>
+                                <td className="border border-[#141414] p-3 font-mono">{entry.qrcode}</td>
                               <td className="border border-[#141414] p-3 font-bold">{entry.sku}</td>
                               <td className="border border-[#141414] p-3">{entry.partner}</td>
                               <td className="border border-[#141414] p-3">{entry.date}</td>
                               <td className="border border-[#141414] p-3 italic">{entry.note}</td>
                               <td className="border border-[#141414] p-3 font-bold text-blue-600">{entry.location}</td>
+                              <td className="border border-[#141414] p-3 text-right font-bold">{entry.quantity}</td>
                               <td className="border border-[#141414] p-3 text-center">
                                 <div className="flex items-center justify-center gap-2">
                                   <button 
@@ -3138,9 +3129,10 @@ export default function App() {
                                 </div>
                               </td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
+                          );
+                        })
+                      )}
+                    </tbody>
                     </table>
                   </div>
                 )}
@@ -3164,6 +3156,32 @@ export default function App() {
                 {editingId ? 'Chỉnh sửa vị trí' : 'Thêm vị trí mới'}
               </h3>
               <form onSubmit={handleLocationSubmit} className="space-y-4">
+                <div className="flex items-center gap-2 p-1 bg-white/50 border border-[#141414]/10 rounded">
+                  <button 
+                    type="button"
+                    onClick={() => setScanMode('INPUT')}
+                    className={cn(
+                      "flex-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-all",
+                      scanMode === 'INPUT' 
+                        ? "bg-green-500 text-white shadow-inner" 
+                        : "text-gray-400 hover:bg-gray-100"
+                    )}
+                  >
+                    NHẬP
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setScanMode('OUTPUT')}
+                    className={cn(
+                      "flex-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-all",
+                      scanMode === 'OUTPUT' 
+                        ? "bg-red-500 text-white shadow-inner" 
+                        : "text-gray-400 hover:bg-gray-100"
+                    )}
+                  >
+                    XUẤT
+                  </button>
+                </div>
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase font-bold opacity-50">QR CODE</label>
                   <input 
@@ -3227,6 +3245,17 @@ export default function App() {
                       value={newLocationEntry.location} 
                       onChange={(e) => setNewLocationEntry({...newLocationEntry, location: e.target.value})}
                       className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors font-bold text-blue-600"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Số lượng</label>
+                    <input 
+                      type="number" 
+                      required
+                      min="1"
+                      value={newLocationEntry.quantity} 
+                      onChange={(e) => setNewLocationEntry({...newLocationEntry, quantity: parseInt(e.target.value) || 0})}
+                      className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors font-bold"
                     />
                   </div>
                 </div>

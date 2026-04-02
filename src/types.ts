@@ -66,6 +66,7 @@ export interface LocationEntry {
   date: string;
   location: string;
   note: string;
+  quantity: number;
   type: 'input' | 'inventory';
   scanType?: 'INPUT' | 'OUTPUT';
 }
