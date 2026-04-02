@@ -90,6 +90,7 @@ export default function App() {
   const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(INITIAL_SUPABASE_CONFIGURED);
   const [isSetupModalOpen, setIsSetupModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [hasLoadedData, setHasLoadedData] = useState(false);
 
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: ''
@@ -196,6 +197,7 @@ export default function App() {
             date: dbHeader.date || format(new Date(), 'dd/MM/yyyy')
           });
         }
+        setHasLoadedData(true);
       } catch (error) {
         console.error('Error loading data from Supabase:', error);
       }
@@ -203,6 +205,37 @@ export default function App() {
 
     loadData();
   }, []);
+
+  // Global Auto-save Effect
+  useEffect(() => {
+    if (!hasLoadedData || !isSupabaseConfigured) return;
+
+    const timeoutId = setTimeout(async () => {
+      setIsSaving(true);
+      try {
+        await Promise.all([
+          api.products.upsertAll(products),
+          api.transactions.upsertAll(transactions),
+          api.customers.upsertAll(customers),
+          api.locationEntries.upsertAll([...locationEntries, ...locationInventoryEntries]),
+          api.deliveryNotes.upsertAll(deliveryNotes),
+          api.savedDeliveryNotes.upsertAll(savedDeliveryNotes),
+          api.deliveryNoteHeader.upsert({
+            docCode: deliveryNoteHeader.documentCode,
+            dept: deliveryNoteHeader.dept,
+            to: deliveryNoteHeader.to,
+            date: deliveryNoteHeader.date
+          })
+        ]);
+      } catch (error) {
+        console.error('Lỗi khi tự động lưu dữ liệu:', error);
+      } finally {
+        setIsSaving(false);
+      }
+    }, 3000); // 3 seconds debounce auto-save
+
+    return () => clearTimeout(timeoutId);
+  }, [hasLoadedData, isSupabaseConfigured, products, transactions, customers, locationEntries, locationInventoryEntries, deliveryNotes, savedDeliveryNotes, deliveryNoteHeader]);
 
   useEffect(() => {
     if (isSupabaseConfigured) {
@@ -1789,10 +1822,11 @@ export default function App() {
             <button 
               onClick={handleSaveAll}
               disabled={isSaving}
-              className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-[10px] font-bold uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50"
+              className={`flex items-center gap-2 px-4 py-2 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-80 ${isSaving ? 'bg-[#ff9900] text-black' : 'bg-[#141414] text-[#E4E3E0] hover:opacity-90'}`}
+              title="Hệ thống đã bật tự động lưu"
             >
               {isSaving ? (
-                <div className="w-3 h-3 border-2 border-[#E4E3E0] border-t-transparent rounded-full animate-spin" />
+                <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
               ) : (
                 <Save size={14} />
               )}
