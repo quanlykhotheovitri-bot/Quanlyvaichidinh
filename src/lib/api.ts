@@ -36,12 +36,12 @@ export const api = {
       return data as Product[];
     },
     async upsert(product: Product): Promise<void> {
-      const { error } = await supabase.from('products').upsert(product);
+      const { error } = await supabase.from('products').upsert(product, { onConflict: 'id' });
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'products');
     },
     async upsertAll(products: Product[]): Promise<void> {
-      const { error } = await supabase.from('products').upsert(products);
+      const { error } = await supabase.from('products').upsert(products, { onConflict: 'id' });
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'products');
     },
@@ -63,12 +63,12 @@ export const api = {
       return data as Transaction[];
     },
     async upsert(transaction: Transaction): Promise<void> {
-      const { error } = await supabase.from('transactions').upsert(transaction);
+      const { error } = await supabase.from('transactions').upsert(transaction, { onConflict: 'id' });
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'transactions');
     },
     async upsertAll(transactions: Transaction[]): Promise<void> {
-      const { error } = await supabase.from('transactions').upsert(transactions);
+      const { error } = await supabase.from('transactions').upsert(transactions, { onConflict: 'id' });
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'transactions');
     },
@@ -90,12 +90,12 @@ export const api = {
       return data as Customer[];
     },
     async upsert(customer: Customer): Promise<void> {
-      const { error } = await supabase.from('customers').upsert(customer);
+      const { error } = await supabase.from('customers').upsert(customer, { onConflict: 'id' });
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'customers');
     },
     async upsertAll(customers: Customer[]): Promise<void> {
-      const { error } = await supabase.from('customers').upsert(customers);
+      const { error } = await supabase.from('customers').upsert(customers, { onConflict: 'id' });
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'customers');
     },
@@ -118,7 +118,7 @@ export const api = {
     },
     async upsertAll(items: DeliveryNoteItem[]): Promise<void> {
       if (items.length === 0) return;
-      const { error } = await supabase.from('delivery_notes').upsert(items);
+      const { error } = await supabase.from('delivery_notes').upsert(items, { onConflict: 'id' });
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'delivery_notes');
     },
@@ -140,7 +140,7 @@ export const api = {
       return data as LocationEntry[];
     },
     async upsert(entry: LocationEntry): Promise<void> {
-      const { error } = await supabase.from('location_entries').upsert(entry);
+      const { error } = await supabase.from('location_entries').upsert(entry, { onConflict: 'id' });
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
     },
@@ -158,7 +158,8 @@ export const api = {
         type: e.type,
         scanType: e.scanType
       }));
-      const { error } = await supabase.from('location_entries').upsert(payload1);
+      
+      const { error } = await supabase.from('location_entries').upsert(payload1, { onConflict: 'id' });
       
       if (error) {
         // Fallback for scantype (lowercase in older PostgREST schemas)
@@ -174,7 +175,7 @@ export const api = {
           type: e.type,
           scantype: e.scanType
         }));
-        const retry = await supabase.from('location_entries').upsert(payload2);
+        const retry = await supabase.from('location_entries').upsert(payload2, { onConflict: 'id' });
         if (retry.error) {
           const errorMsg = `Lỗi Supabase (Location - Original): ${error.message} (Code: ${error.code})\nLỗi Supabase (Location - Retry): ${retry.error.message} (Code: ${retry.error.code})`;
           alert(errorMsg);
@@ -206,12 +207,12 @@ export const api = {
       return data as {id: string, date: string, items: DeliveryNoteItem[]}[];
     },
     async upsert(note: {id: string, date: string, items: DeliveryNoteItem[]}): Promise<void> {
-      const { error } = await supabase.from('saved_delivery_notes').upsert(note);
+      const { error } = await supabase.from('saved_delivery_notes').upsert(note, { onConflict: 'id' });
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'saved_delivery_notes');
     },
     async upsertAll(notes: {id: string, date: string, items: DeliveryNoteItem[]}[]): Promise<void> {
-      const { error } = await supabase.from('saved_delivery_notes').upsert(notes);
+      const { error } = await supabase.from('saved_delivery_notes').upsert(notes, { onConflict: 'id' });
       if (error) throw error;
       localStorage.removeItem(CACHE_KEY_PREFIX + 'saved_delivery_notes');
     },
@@ -235,7 +236,7 @@ export const api = {
         dept: header.dept,
         to: header.to,
         date: header.date
-      });
+      }, { onConflict: 'id' });
       if (error) {
         // Fallback in case they already ran the migration (or the error code differs)
         const retry = await supabase.from('delivery_note_header').upsert({ 
@@ -244,7 +245,7 @@ export const api = {
           dept: header.dept,
           toName: header.to,
           date: header.date
-        });
+        }, { onConflict: 'id' });
         if (retry.error) {
           // If both fail, let's show the exact error message from Supabase
           const errorMsg = `Lỗi Supabase (Original): ${error.message} (Code: ${error.code})\nLỗi Supabase (Retry): ${retry.error.message} (Code: ${retry.error.code})`;
