@@ -204,19 +204,15 @@ export const api = {
         date: header.date
       });
       if (error) {
-        // Fallback in case they already ran the migration
-        if (error.code === 'PGRST204' || error.message.includes('toName')) {
-            const retry = await supabase.from('delivery_note_header').upsert({ 
-              id: 'current', 
-              docCode: header.docCode,
-              dept: header.dept,
-              toName: header.to,
-              date: header.date
-            });
-            if (retry.error) throw retry.error;
-            return;
-        }
-        throw error;
+        // Fallback in case they already ran the migration (or the error code differs)
+        const retry = await supabase.from('delivery_note_header').upsert({ 
+          id: 'current', 
+          docCode: header.docCode,
+          dept: header.dept,
+          toName: header.to,
+          date: header.date
+        });
+        if (retry.error) throw retry.error;
       }
     }
   }
