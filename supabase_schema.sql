@@ -1,8 +1,6 @@
--- Create tables for Ortholite Inventory Management
-
--- Products table
-CREATE TABLE products (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-- Create products table
+CREATE TABLE IF NOT EXISTS products (
+  id TEXT PRIMARY KEY,
   sku TEXT NOT NULL,
   name TEXT NOT NULL,
   category TEXT,
@@ -12,35 +10,35 @@ CREATE TABLE products (
   ghiChu TEXT,
   designationCode TEXT,
   loaiChiDinh TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Transactions table
-CREATE TABLE transactions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  productId UUID REFERENCES products(id) ON DELETE CASCADE,
+-- Create transactions table
+CREATE TABLE IF NOT EXISTS transactions (
+  id TEXT PRIMARY KEY,
+  productId TEXT REFERENCES products(id) ON DELETE CASCADE,
   type TEXT CHECK (type IN ('inbound', 'outbound')),
   quantity NUMERIC NOT NULL,
-  date TIMESTAMPTZ NOT NULL,
+  date TEXT NOT NULL,
   partner TEXT,
   loaiChiDinh TEXT,
   lotNo TEXT,
   ghiChu TEXT,
   designationCode TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Customers table
-CREATE TABLE customers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  code TEXT NOT NULL UNIQUE,
+-- Create customers table
+CREATE TABLE IF NOT EXISTS customers (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL,
   name TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Delivery Notes table
-CREATE TABLE delivery_notes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-- Create delivery_notes table
+CREATE TABLE IF NOT EXISTS delivery_notes (
+  id TEXT PRIMARY KEY,
   no INTEGER,
   ovnSaleOrder TEXT,
   ovnProductionOrder TEXT,
@@ -58,58 +56,57 @@ CREATE TABLE delivery_notes (
   noCode TEXT,
   location TEXT,
   stock TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Enable Row Level Security (RLS)
-ALTER TABLE products ENABLE ROW LEVEL SECURITY;
-ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE delivery_notes ENABLE ROW LEVEL SECURITY;
-
--- Create policies for public access (adjust as needed for production)
-CREATE POLICY "Public Access" ON products FOR ALL USING (true);
-CREATE POLICY "Public Access" ON transactions FOR ALL USING (true);
-CREATE POLICY "Public Access" ON customers FOR ALL USING (true);
-CREATE POLICY "Public Access" ON delivery_notes FOR ALL USING (true);
-
--- Location Entries table
-CREATE TABLE location_entries (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  qrcode TEXT,
-  sku TEXT,
+-- Create location_entries table
+CREATE TABLE IF NOT EXISTS location_entries (
+  id TEXT PRIMARY KEY,
+  qrcode TEXT NOT NULL,
+  sku TEXT NOT NULL,
   partner TEXT,
   date TEXT,
   location TEXT,
   note TEXT,
-  type TEXT,
-  scanType TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  quantity NUMERIC DEFAULT 1,
+  type TEXT CHECK (type IN ('input', 'inventory')),
+  scanType TEXT CHECK (scanType IN ('INPUT', 'OUTPUT')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-ALTER TABLE location_entries ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public Access" ON location_entries FOR ALL USING (true);
-
--- Saved Delivery Notes table
-CREATE TABLE saved_delivery_notes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-- Create saved_delivery_notes table
+CREATE TABLE IF NOT EXISTS saved_delivery_notes (
+  id TEXT PRIMARY KEY,
   date TEXT NOT NULL,
   items JSONB NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-ALTER TABLE saved_delivery_notes ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public Access" ON saved_delivery_notes FOR ALL USING (true);
-
--- Delivery Note Header table
-CREATE TABLE delivery_note_header (
-  id TEXT PRIMARY KEY,
+-- Create delivery_note_header table
+CREATE TABLE IF NOT EXISTS delivery_note_header (
+  id TEXT PRIMARY KEY DEFAULT 'current',
   docCode TEXT,
   dept TEXT,
-  "to" TEXT,
+  toName TEXT,
   date TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Enable Row Level Security (RLS) for all tables
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE delivery_notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE location_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE saved_delivery_notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE delivery_note_header ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public Access" ON delivery_note_header FOR ALL USING (true);
+
+-- Create policies to allow all access (for development)
+-- In a production app, you should restrict these policies
+CREATE POLICY "Allow all access to products" ON products FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all access to transactions" ON transactions FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all access to customers" ON customers FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all access to delivery_notes" ON delivery_notes FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all access to location_entries" ON location_entries FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all access to saved_delivery_notes" ON saved_delivery_notes FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all access to delivery_note_header" ON delivery_note_header FOR ALL USING (true) WITH CHECK (true);

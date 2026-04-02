@@ -1931,7 +1931,7 @@ export default function App() {
                       <h3 className="text-xs font-bold uppercase tracking-widest">BIỂU ĐỒ TỒN KHO THEO LOẠI CHỈ ĐỊNH</h3>
                     </div>
                     <div className="h-[400px]">
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                         <BarChart data={chartData}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ffffff" strokeOpacity={0.1} />
                           <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#ffffff' }} />
