@@ -79,9 +79,11 @@ CREATE TABLE location_entries (
   qrcode TEXT,
   sku TEXT,
   partner TEXT,
-  date TIMESTAMPTZ,
+  date TEXT,
   location TEXT,
   note TEXT,
+  type TEXT,
+  scanType TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

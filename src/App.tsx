@@ -39,6 +39,7 @@ import { cn } from './lib/utils';
 import { Product, Transaction, InventoryItem, Customer, DeliveryNoteItem, LocationEntry } from './types';
 import { INITIAL_PRODUCTS, INITIAL_TRANSACTIONS, INITIAL_CUSTOMERS } from './constants';
 import { api } from './lib/api';
+import { isSupabaseConfigured as INITIAL_SUPABASE_CONFIGURED } from './lib/supabase';
 
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
@@ -86,7 +87,8 @@ export default function App() {
     qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: ''
   });
   const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk', type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote' } | null>(null);
-  const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(true);
+  const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(INITIAL_SUPABASE_CONFIGURED);
+  const [isSetupModalOpen, setIsSetupModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
@@ -125,12 +127,7 @@ export default function App() {
       return placeholder;
     };
 
-    const supabaseUrl = getValidUrl(import.meta.env.VITE_SUPABASE_URL);
-    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-    if (!import.meta.env.VITE_SUPABASE_URL || !supabaseAnonKey || supabaseUrl.includes('placeholder')) {
-      setIsSupabaseConfigured(false);
-    }
+    setIsSupabaseConfigured(INITIAL_SUPABASE_CONFIGURED);
 
     const loadData = async () => {
       try {
@@ -1630,6 +1627,12 @@ export default function App() {
                 <strong>Supabase chưa được cấu hình:</strong> Vui lòng thiết lập <code>VITE_SUPABASE_URL</code> và <code>VITE_SUPABASE_ANON_KEY</code> trong menu Settings để đồng bộ dữ liệu.
               </span>
             </div>
+            <button 
+              onClick={() => setIsSetupModalOpen(true)}
+              className="text-[10px] font-bold uppercase text-amber-900 hover:underline"
+            >
+              Hướng dẫn thiết lập
+            </button>
           </div>
         )}
 
@@ -3523,6 +3526,62 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Setup Modal */}
+      {isSetupModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white border border-[#141414] w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+          >
+            <div className="bg-[#141414] text-[#E4E3E0] p-4 flex justify-between items-center sticky top-0">
+              <h3 className="text-xs font-bold uppercase tracking-widest">HƯỚNG DẪN THIẾT LẬP SUPABASE</h3>
+              <button onClick={() => setIsSetupModalOpen(false)} className="hover:opacity-70">
+                <Plus size={20} className="rotate-45" />
+              </button>
+            </div>
+            <div className="p-8 space-y-6">
+              <section className="space-y-3">
+                <h4 className="text-sm font-bold uppercase border-b border-gray-200 pb-2">Bước 1: Tạo dự án Supabase</h4>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Truy cập <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-blue-600 underline">supabase.com</a>, tạo một dự án mới. Sau khi tạo xong, vào phần <strong>Project Settings &gt; API</strong> để lấy <code>Project URL</code> và <code>anon public key</code>.
+                </p>
+              </section>
+
+              <section className="space-y-3">
+                <h4 className="text-sm font-bold uppercase border-b border-gray-200 pb-2">Bước 2: Cấu hình biến môi trường</h4>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Mở menu <strong>Settings</strong> (biểu tượng bánh răng) ở góc trên bên phải của AI Studio Build, sau đó thêm 2 biến sau:
+                </p>
+                <div className="bg-gray-100 p-3 font-mono text-[10px] space-y-1 border border-gray-200">
+                  <p>VITE_SUPABASE_URL = [Project URL của bạn]</p>
+                  <p>VITE_SUPABASE_ANON_KEY = [anon public key của bạn]</p>
+                </div>
+                <p className="text-[10px] text-amber-600 italic">
+                  * Lưu ý: Nếu bạn deploy lên Vercel, hãy đảm bảo các biến này cũng được thêm vào Vercel Dashboard với tiền tố <code>VITE_</code>.
+                </p>
+              </section>
+
+              <section className="space-y-3">
+                <h4 className="text-sm font-bold uppercase border-b border-gray-200 pb-2">Bước 3: Khởi tạo Database</h4>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Vào phần <strong>SQL Editor</strong> trong Supabase Dashboard, tạo một query mới và dán nội dung từ file <code>supabase_schema.sql</code> trong project này vào để tạo các bảng cần thiết.
+                </p>
+              </section>
+
+              <div className="pt-4 flex justify-end">
+                <button 
+                  onClick={() => setIsSetupModalOpen(false)}
+                  className="px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-widest hover:opacity-90 transition-opacity"
+                >
+                  Đã hiểu
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
