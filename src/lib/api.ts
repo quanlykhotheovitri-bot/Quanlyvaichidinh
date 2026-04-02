@@ -193,18 +193,31 @@ export const api = {
       const { data, error } = await supabase.from('delivery_note_header').select('*').single();
       if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "no rows returned"
       if (!data) return null;
-      // Map DB column 'toName' back to 'to' for App.tsx compatibility
-      return { ...data, to: (data as any).toName || data.to || '' };
+      return { ...data, to: data.to || (data as any).toName || '' };
     },
     async upsert(header: {docCode: string, dept: string, to: string, date: string}): Promise<void> {
       const { error } = await supabase.from('delivery_note_header').upsert({ 
         id: 'current', 
         docCode: header.docCode,
         dept: header.dept,
-        toName: header.to,
+        to: header.to,
         date: header.date
       });
-      if (error) throw error;
+      if (error) {
+        // Fallback in case they already ran the migration
+        if (error.code === 'PGRST204' || error.message.includes('toName')) {
+            const retry = await supabase.from('delivery_note_header').upsert({ 
+              id: 'current', 
+              docCode: header.docCode,
+              dept: header.dept,
+              toName: header.to,
+              date: header.date
+            });
+            if (retry.error) throw retry.error;
+            return;
+        }
+        throw error;
+      }
     }
   }
 };
