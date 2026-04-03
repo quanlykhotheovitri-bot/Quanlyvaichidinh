@@ -1017,24 +1017,35 @@ export default function App() {
   }, [deliveryNotes, searchQuery]);
 
   const processData = (data: any[]) => {
+    const normalizeKey = (key: string) => {
+      return key.toLowerCase().trim()
+        .replace(/\./g, '')
+        .replace(/\s+/g, ' ');
+    };
+
     if (activeTab === 'inventory') {
       setProducts(prev => {
         const updatedProducts = [...prev];
         const skuToProductIndex = new Map(updatedProducts.map((p, i) => [p.sku, i]));
 
-        data.forEach((row, index) => {
+        data.forEach((row) => {
           const normalizedRow: any = {};
           Object.keys(row).forEach(key => {
-            normalizedRow[key.toLowerCase().trim()] = row[key];
+            normalizedRow[normalizeKey(key)] = row[key];
           });
 
           const sku = String(
             normalizedRow['sku'] || 
             normalizedRow['mã hàng'] || 
+            normalizedRow['mã hàng hóa'] ||
+            normalizedRow['mã hh'] ||
             normalizedRow['mã sp'] || 
             normalizedRow['mã sản phẩm'] || 
             normalizedRow['mã vật tư'] ||
             normalizedRow['item no'] ||
+            normalizedRow['item code'] ||
+            normalizedRow['mã'] ||
+            normalizedRow['item'] ||
             row.sku || row.SKU || row['Mã Hàng'] || ''
           ).trim();
 
@@ -1043,11 +1054,16 @@ export default function App() {
           const name = String(
             normalizedRow['name'] || 
             normalizedRow['tên hàng'] || 
+            normalizedRow['tên hàng hóa'] ||
+            normalizedRow['tên hh'] ||
             normalizedRow['tên sp'] || 
             normalizedRow['tên sản phẩm'] || 
             normalizedRow['tên vật tư'] ||
             normalizedRow['product name'] || 
             normalizedRow['item name'] ||
+            normalizedRow['description'] ||
+            normalizedRow['mô tả'] ||
+            normalizedRow['tên'] ||
             row.name || row.Name || row['Tên hàng'] || 'Sản phẩm mới'
           ).trim();
 
@@ -1055,7 +1071,7 @@ export default function App() {
           const productData: Product = {
             id: existingIndex !== undefined ? updatedProducts[existingIndex].id : generateId(),
             sku: sku,
-            name: name,
+            name: name === '' ? 'Sản phẩm mới' : name,
             category: normalizedRow['category'] || normalizedRow['loại'] || row.category || row.Category || 'Chưa phân loại',
             unit: normalizedRow['unit'] || normalizedRow['đơn vị'] || row.unit || row.Unit || 'Cái',
             minStock: Number(normalizedRow['minstock'] || normalizedRow['tồn tối thiểu'] || row.minStock || row.MinStock || 0),
@@ -1079,23 +1095,27 @@ export default function App() {
       setProducts(prevProducts => {
         const updatedProducts = [...prevProducts];
         const newProductsToAdd: Product[] = [];
-        
         const skuToProductIndex = new Map(updatedProducts.map((p, i) => [p.sku, i]));
         const skuToNewProductIndex = new Map<string, number>();
 
-        data.forEach((row, index) => {
+        data.forEach((row) => {
           const normalizedRow: any = {};
           Object.keys(row).forEach(key => {
-            normalizedRow[key.toLowerCase().trim()] = row[key];
+            normalizedRow[normalizeKey(key)] = row[key];
           });
 
           const sku = String(
             normalizedRow['sku'] || 
             normalizedRow['mã hàng'] || 
+            normalizedRow['mã hàng hóa'] ||
+            normalizedRow['mã hh'] ||
             normalizedRow['mã sp'] || 
             normalizedRow['mã sản phẩm'] || 
             normalizedRow['mã vật tư'] ||
             normalizedRow['item no'] ||
+            normalizedRow['item code'] ||
+            normalizedRow['mã'] ||
+            normalizedRow['item'] ||
             row.sku || row.SKU || row['Mã Hàng'] || ''
           ).trim();
 
@@ -1104,11 +1124,16 @@ export default function App() {
           const name = String(
             normalizedRow['name'] || 
             normalizedRow['tên hàng'] || 
+            normalizedRow['tên hàng hóa'] ||
+            normalizedRow['tên hh'] ||
             normalizedRow['tên sp'] || 
             normalizedRow['tên sản phẩm'] || 
             normalizedRow['tên vật tư'] ||
             normalizedRow['product name'] || 
             normalizedRow['item name'] ||
+            normalizedRow['description'] ||
+            normalizedRow['mô tả'] ||
+            normalizedRow['tên'] ||
             row.name || row.Name || row['Tên hàng'] || ''
           ).trim();
 
@@ -1180,19 +1205,24 @@ export default function App() {
         const finalProducts = [...updatedProducts, ...newProductsToAdd];
         const finalProductsMap = new Map(finalProducts.map(p => [p.sku, p]));
 
-        const newTransactions: Transaction[] = data.map((row, index) => {
+        const newTransactions: Transaction[] = data.map((row) => {
           const normalizedRow: any = {};
           Object.keys(row).forEach(key => {
-            normalizedRow[key.toLowerCase().trim()] = row[key];
+            normalizedRow[normalizeKey(key)] = row[key];
           });
 
           const sku = String(
             normalizedRow['sku'] || 
             normalizedRow['mã hàng'] || 
+            normalizedRow['mã hàng hóa'] ||
+            normalizedRow['mã hh'] ||
             normalizedRow['mã sp'] || 
             normalizedRow['mã sản phẩm'] || 
             normalizedRow['mã vật tư'] ||
             normalizedRow['item no'] ||
+            normalizedRow['item code'] ||
+            normalizedRow['mã'] ||
+            normalizedRow['item'] ||
             row.sku || row.SKU || row['Mã Hàng'] || ''
           ).trim();
 
