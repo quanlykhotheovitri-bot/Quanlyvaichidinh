@@ -386,6 +386,161 @@ export default function App() {
     }
   };
 
+  const createExcelFile = async (
+    data: any[], 
+    columns: { header: string, key: string, width: number, alignment?: Partial<ExcelJS.Alignment>, isHighlight?: boolean }[], 
+    fileName: string, 
+    title: string,
+    headerColor: string = 'FF001F3F'
+  ) => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Sheet1');
+
+    // 1. Add Title
+    const titleRow = worksheet.addRow(['', title]);
+    titleRow.height = 30;
+    worksheet.mergeCells(1, 2, 1, columns.length + 1);
+    titleRow.getCell(2).font = { name: 'Arial', size: 16, bold: true };
+    titleRow.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
+
+    // 2. Add Metadata (Date)
+    const dateRow = worksheet.addRow(['', `Ngày lập báo cáo: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`]);
+    worksheet.mergeCells(2, 2, 2, columns.length + 1);
+    dateRow.getCell(2).font = { name: 'Arial', size: 10, italic: true };
+    dateRow.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
+
+    worksheet.addRow([]); // Empty row
+
+    // 3. Setup Columns
+    worksheet.columns = [
+      { width: 5 }, // Column A for spacing/Index
+      ...columns.map(col => ({ header: col.header, key: col.key, width: col.width }))
+    ];
+
+    // 4. Add Header Row
+    const headerRow = worksheet.getRow(4);
+    headerRow.values = ['', ...columns.map(c => c.header)];
+    headerRow.height = 25;
+    headerRow.eachCell((cell, colNumber) => {
+      if (colNumber > 1) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: headerColor }
+        };
+        cell.font = { color: { argb: 'FFFFFFFF' }, bold: true, size: 10 };
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+      }
+    });
+
+    // 5. Add Data Rows
+    data.forEach((item, index) => {
+      const rowData = { ...item, index: index + 1 };
+      const row = worksheet.addRow(['', ...columns.map(col => item[col.key])]);
+      row.eachCell((cell, colNumber) => {
+        if (colNumber > 1) {
+          const colDef = columns[colNumber - 2];
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+          cell.font = { name: 'Arial', size: 10 };
+          cell.alignment = colDef.alignment || { vertical: 'middle', horizontal: 'left' };
+          
+          if (colDef.isHighlight) {
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFFACC15' } // Yellow-400
+            };
+          }
+        }
+      });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    saveAs(blob, `${fileName}_${format(new Date(), 'ddMMyyyy_HHmm')}.xlsx`);
+  };
+
+  const handleExportInventory = async () => {
+    const columns = [
+      { header: 'Mã Hàng', key: 'sku', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'Tên hàng', key: 'name', width: 35 },
+      { header: 'Lot no', key: 'lotNo', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'Số lượng nhập', key: 'totalInbound', width: 15, alignment: { horizontal: 'right' as ExcelJS.Alignment['horizontal'] }, isHighlight: true },
+      { header: 'Số lượng xuất', key: 'totalOutbound', width: 15, alignment: { horizontal: 'right' as ExcelJS.Alignment['horizontal'] }, isHighlight: true },
+      { header: 'Tồn cuối', key: 'currentStock', width: 15, alignment: { horizontal: 'right' as ExcelJS.Alignment['horizontal'] }, isHighlight: true },
+      { header: 'Loại chỉ định', key: 'loaiChiDinh', width: 20 },
+      { header: 'Ghi chú', key: 'ghiChu', width: 25 },
+      { header: 'Mã chỉ định', key: 'designationCode', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+    ];
+    await createExcelFile(filteredInventory, columns, 'BaoCaoTonKho', 'BÁO CÁO TỒN KHO');
+  };
+
+  const handleExportTransactions = async () => {
+    const isInbound = activeTab === 'inbound';
+    const title = isInbound ? 'DANH SÁCH NHẬP KHO' : 'DANH SÁCH XUẤT KHO';
+    const fileName = isInbound ? 'DanhSachNhapKho' : 'DanhSachXuatKho';
+    const headerColor = isInbound ? 'FF1a5f7a' : 'FFC2410C';
+
+    const columns = [
+      { header: 'Mã Hàng', key: 'sku', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'Tên hàng', key: 'name', width: 35 },
+      { header: 'Lot no', key: 'lotNo', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: isInbound ? 'Số lượng nhập' : 'Số lượng xuất', key: 'quantity', width: 15, alignment: { horizontal: 'right' as ExcelJS.Alignment['horizontal'] }, isHighlight: true },
+      { header: isInbound ? 'Ngày nhập' : 'Ngày xuất', key: 'date', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'Loại chỉ định', key: 'loaiChiDinh', width: 20 },
+      { header: 'Ghi chú', key: 'ghiChu', width: 25 },
+      { header: 'Mã chỉ định', key: 'designationCode', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+    ];
+
+    const data = filteredTransactions
+      .filter(t => t.type === activeTab)
+      .map(t => {
+        const product = products.find(p => p.id === t.productId);
+        return {
+          ...t,
+          sku: product?.sku || 'N/A',
+          name: product?.name || 'N/A'
+        };
+      });
+
+    await createExcelFile(data, columns, fileName, title, headerColor);
+  };
+
+  const handleExportCustomers = async () => {
+    const columns = [
+      { header: 'Mã KH', key: 'code', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'Tên KH', key: 'name', width: 35 }
+    ];
+    await createExcelFile(filteredCustomers, columns, 'DanhSachKhachHang', 'DANH SÁCH KHÁCH HÀNG');
+  };
+
+  const handleExportLocations = async () => {
+    const isInv = locationSubTab === 'inventory';
+    const title = isInv ? 'BÁO CÁO TỒN KHO THEO VỊ TRÍ' : 'LỊCH SỬ NHẬP XUẤT VỊ TRÍ';
+    const columns = [
+      { header: 'QRCODE', key: 'qrcode', width: 25, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'Mã', key: 'sku', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'NCC', key: 'partner', width: 20 },
+      { header: 'NGÀY', key: 'date', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'Cuộn', key: 'note', width: 20 },
+      { header: 'Vị trí', key: 'location', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'SL', key: 'quantity', width: 10, alignment: { horizontal: 'right' as ExcelJS.Alignment['horizontal'] }, isHighlight: true },
+    ];
+    const data = isInv ? filteredLocationInventoryEntries : filteredLocationEntries;
+    await createExcelFile(data, columns, isInv ? 'TonViTri' : 'LichSuViTri', title);
+  };
+
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     let updatedProduct: Product;
@@ -2060,6 +2215,13 @@ export default function App() {
                       />
                     </div>
                     <button 
+                      onClick={handleExportTransactions}
+                      className="flex items-center gap-2 px-6 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                    >
+                      <Download size={14} />
+                      Xuất Excel
+                    </button>
+                    <button 
                       onClick={() => {
                         setNewTransaction(prev => ({ ...prev, type: activeTab as 'inbound' | 'outbound' }));
                         setIsTransactionModalOpen(true);
@@ -2155,9 +2317,9 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
+              </div>
               </motion.div>
             )}
-
             {activeTab === 'inventory' && (
               <motion.div 
                 key="inventory"
@@ -2179,7 +2341,7 @@ export default function App() {
                         className="pl-10 pr-4 py-2 border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-64"
                       />
                     </div>
-                    <button className="flex items-center gap-2 px-6 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
+                    <button onClick={handleExportInventory}  className="flex items-center gap-2 px-6 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
                       <Download size={14} />
                       Xuất báo cáo
                     </button>
@@ -2271,6 +2433,7 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
+              </div>
               </motion.div>
             )}
             {activeTab === 'customers' && (
@@ -2294,6 +2457,7 @@ export default function App() {
                         className="pl-10 pr-4 py-2 border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-64"
                       />
                     </div>
+                    <button onClick={handleExportCustomers} className="flex items-center gap-2 px-6 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"><Download size={14} />Xuất Excel</button>
                     <button 
                       onClick={() => fileInputRef.current?.click()}
                       className="flex items-center gap-2 px-6 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
@@ -2379,6 +2543,7 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
+              </div>
               </motion.div>
             )}
 
@@ -2991,6 +3156,7 @@ export default function App() {
                       <Plus size={14} />
                       Thêm vị trí
                     </button>
+                    <button onClick={handleExportLocations} className="flex items-center gap-2 px-6 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"><Download size={14} />Xuất Excel</button>
                     <button 
                       onClick={() => fileInputRef.current?.click()}
                       className="flex items-center gap-2 px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
@@ -3203,6 +3369,7 @@ export default function App() {
                     </table>
                   </div>
                 )}
+              </div>
               </motion.div>
             )}
           </AnimatePresence>
