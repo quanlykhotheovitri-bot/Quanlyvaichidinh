@@ -20,7 +20,10 @@ import {
   Printer,
   MapPin,
   Save,
-  WifiOff
+  WifiOff,
+  AlertCircle,
+  CheckCircle2,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -50,9 +53,9 @@ type Tab = 'dashboard' | 'inbound' | 'outbound' | 'inventory' | 'customers' | 'd
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
-  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
-  const [customers, setCustomers] = useState<Customer[]>(INITIAL_CUSTOMERS);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [locationEntries, setLocationEntries] = useState<LocationEntry[]>([]);
   const [locationInventoryEntries, setLocationInventoryEntries] = useState<LocationEntry[]>([]);
   const [deliveryNotes, setDeliveryNotes] = useState<DeliveryNoteItem[]>([]);
@@ -88,6 +91,12 @@ export default function App() {
     qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: '', quantity: 1
   });
   const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk', type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote', qrcode?: string } | null>(null);
+  const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+
+  const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 5000);
+  };
   const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(INITIAL_SUPABASE_CONFIGURED);
   const [isSetupModalOpen, setIsSetupModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -118,102 +127,72 @@ export default function App() {
     setSelectedRows([]);
   }, [activeTab, locationSubTab]);
 
-  // Load data from Supabase on start
+  const loadData = async () => {
+    try {
+      const [dbProducts, dbTransactions, dbCustomers, dbDeliveryNotes, dbLocationEntries, dbSavedDeliveryNotes, dbHeader] = await Promise.all([
+        api.products.getAll(),
+        api.transactions.getAll(),
+        api.customers.getAll(),
+        api.deliveryNotes.getAll(),
+        api.locationEntries.getAll(),
+        api.savedDeliveryNotes.getAll(),
+        api.deliveryNoteHeader.get()
+      ]);
+
+      if (dbProducts.length > 0) {
+        setProducts(dbProducts);
+      }
+
+      if (dbTransactions.length > 0) {
+        setTransactions(dbTransactions);
+      }
+
+      if (dbCustomers.length > 0) {
+        setCustomers(dbCustomers);
+      }
+
+      if (dbDeliveryNotes.length > 0) setDeliveryNotes(dbDeliveryNotes);
+      if (dbLocationEntries.length > 0) {
+        setLocationEntries(dbLocationEntries.filter(e => e.type === 'input' || !e.type));
+        const inventoryEntries = dbLocationEntries.filter(e => e.type === 'inventory');
+        const grouped = new Map<string, LocationEntry>();
+        inventoryEntries.forEach(entry => {
+          const key = `${entry.qrcode}|${entry.location || ''}`;
+          if (!grouped.has(key)) {
+            grouped.set(key, { ...entry });
+          } else {
+            const existing = grouped.get(key)!;
+            if (!existing.sku) existing.sku = entry.sku;
+            if (!existing.partner) existing.partner = entry.partner;
+            if (!existing.date) existing.date = entry.date;
+            if (!existing.note) existing.note = entry.note;
+          }
+        });
+        setLocationInventoryEntries(Array.from(grouped.values()));
+      }
+      if (dbSavedDeliveryNotes.length > 0) setSavedDeliveryNotes(dbSavedDeliveryNotes);
+      if (dbHeader) {
+        setDeliveryNoteHeader({
+          documentCode: dbHeader.docCode || 'WH.F-004/P-01',
+          dept: dbHeader.dept || 'SX 5',
+          to: dbHeader.to || '',
+          date: dbHeader.date || format(new Date(), 'dd/MM/yyyy')
+        });
+      }
+      setHasLoadedData(true);
+    } catch (error) {
+      console.error('Error loading data from Supabase:', error);
+    }
+  };
+
   React.useEffect(() => {
-    const getValidUrl = (url: any): string => {
-      const placeholder = 'https://placeholder-project.supabase.co';
-      if (typeof url !== 'string') return placeholder;
-      try {
-        const parsed = new URL(url);
-        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-          return url;
-        }
-      } catch {
-        // Not a valid URL
-      }
-      return placeholder;
-    };
-
-    setIsSupabaseConfigured(INITIAL_SUPABASE_CONFIGURED);
-
-    const loadData = async () => {
-      try {
-        const [dbProducts, dbTransactions, dbCustomers, dbDeliveryNotes, dbLocationEntries, dbSavedDeliveryNotes, dbHeader] = await Promise.all([
-          api.products.getAll(),
-          api.transactions.getAll(),
-          api.customers.getAll(),
-          api.deliveryNotes.getAll(),
-          api.locationEntries.getAll(),
-          api.savedDeliveryNotes.getAll(),
-          api.deliveryNoteHeader.get()
-        ]);
-
-        // If database is empty, seed it with initial data
-        if (dbProducts.length === 0 && INITIAL_PRODUCTS.length > 0) {
-          await api.products.upsertAll(INITIAL_PRODUCTS);
-          setProducts(INITIAL_PRODUCTS);
-        } else if (dbProducts.length > 0) {
-          setProducts(dbProducts);
-        }
-
-        if (dbTransactions.length === 0 && INITIAL_TRANSACTIONS.length > 0) {
-          await api.transactions.upsertAll(INITIAL_TRANSACTIONS);
-          setTransactions(INITIAL_TRANSACTIONS);
-        } else if (dbTransactions.length > 0) {
-          setTransactions(dbTransactions);
-        }
-
-        if (dbCustomers.length === 0 && INITIAL_CUSTOMERS.length > 0) {
-          await api.customers.upsertAll(INITIAL_CUSTOMERS);
-          setCustomers(INITIAL_CUSTOMERS);
-        } else if (dbCustomers.length > 0) {
-          setCustomers(dbCustomers);
-        }
-
-        if (dbDeliveryNotes.length > 0) setDeliveryNotes(dbDeliveryNotes);
-        if (dbLocationEntries.length > 0) {
-          setLocationEntries(dbLocationEntries.filter(e => e.type === 'input' || !e.type));
-          const inventoryEntries = dbLocationEntries.filter(e => e.type === 'inventory');
-          // Deduplicate existing inventory entries
-          const grouped = new Map<string, LocationEntry>();
-          inventoryEntries.forEach(entry => {
-            const key = `${entry.qrcode}|${entry.location || ''}`;
-            if (!grouped.has(key)) {
-              grouped.set(key, { ...entry });
-            } else {
-              const existing = grouped.get(key)!;
-              if (!existing.sku) existing.sku = entry.sku;
-              if (!existing.partner) existing.partner = entry.partner;
-              if (!existing.date) existing.date = entry.date;
-              if (!existing.note) existing.note = entry.note;
-            }
-          });
-          setLocationInventoryEntries(Array.from(grouped.values()));
-        }
-        if (dbSavedDeliveryNotes.length > 0) setSavedDeliveryNotes(dbSavedDeliveryNotes);
-        if (dbHeader) {
-          setDeliveryNoteHeader({
-            documentCode: dbHeader.docCode || 'WH.F-004/P-01',
-            dept: dbHeader.dept || 'SX 5',
-            to: dbHeader.to || '',
-            date: dbHeader.date || format(new Date(), 'dd/MM/yyyy')
-          });
-        }
-        setHasLoadedData(true);
-      } catch (error) {
-        console.error('Error loading data from Supabase:', error);
-      }
-    };
-
     loadData();
   }, []);
 
-  // Global Auto-save Effect
   useEffect(() => {
     if (!hasLoadedData || !isSupabaseConfigured) return;
 
     const timeoutId = setTimeout(async () => {
-      // Don't attempt to sync if offline
       if (!isOnline) {
         console.log('App is offline, skipping sync until network is back. Data is safely cached locally.');
         return;
@@ -240,16 +219,14 @@ export default function App() {
       } finally {
         setIsSaving(false);
       }
-    }, 3000); // 3 seconds debounce auto-save
+    }, 3000);
 
     return () => clearTimeout(timeoutId);
   }, [hasLoadedData, isSupabaseConfigured, isOnline, products, transactions, customers, locationEntries, locationInventoryEntries, deliveryNotes, savedDeliveryNotes, deliveryNoteHeader]);
 
-  // Handle Online/Offline Status and Forced Sync
   useEffect(() => {
     const handleOnline = async () => {
       setIsOnline(true);
-      // Force sync right after reconnecting
       if (hasLoadedData && isSupabaseConfigured) {
         setIsSaving(true);
         try {
@@ -267,9 +244,10 @@ export default function App() {
               date: deliveryNoteHeader.date
             })
           ]);
-          alert('Đã kết nối lại Internet và đồng bộ dữ liệu nội bộ lên Mây thành công!');
+          showNotification('Đã kết nối lại Internet và đồng bộ dữ liệu thành công!');
         } catch (error) {
           console.error('Lỗi khi đồng bộ lúc có mạng lại:', error);
+          showNotification('Lỗi khi đồng bộ dữ liệu.', 'error');
         } finally {
           setIsSaving(false);
         }
@@ -278,6 +256,7 @@ export default function App() {
     
     const handleOffline = () => {
       setIsOnline(false);
+      showNotification('Đã mất kết nối Internet. Dữ liệu đang được lưu cục bộ.', 'error');
     };
 
     window.addEventListener('online', handleOnline);
@@ -311,7 +290,7 @@ export default function App() {
         const updatedNotes = prev.filter(item => item.id !== deliveryNoteDeleteId);
         api.deliveryNotes.upsertAll(updatedNotes).catch(error => {
           console.error('Error syncing delivery notes:', error);
-          alert('Không thể đồng bộ phiếu giao hàng sau khi xóa.');
+          showNotification('Không thể đồng bộ phiếu giao hàng sau khi xóa.', 'error');
         });
         return updatedNotes;
       });
@@ -347,8 +326,6 @@ export default function App() {
   };
 
   const handleEditDeliveryNoteItem = (index: number, field: keyof DeliveryNoteItem, value: any) => {
-    // This one is still using index because it's called from filteredDeliveryNotes.map
-    // I should probably change this too to use ID for safety.
     const itemAtId = filteredDeliveryNotes[index].id;
     setDeliveryNotes(prev => prev.map(item => 
       item.id === itemAtId ? { ...item, [field]: value } : item
@@ -399,11 +376,13 @@ export default function App() {
           api.savedDeliveryNotes.upsert(newSavedNote),
           api.deliveryNotes.deleteAll()
         ]);
+        showNotification('Đã post lệnh xuất kho thành công!');
       } catch (error) {
         console.error('Error syncing post delivery note:', error);
+        showNotification('Lỗi khi post lệnh xuất kho.', 'error');
       }
     } else {
-      console.warn('Không có dữ liệu thực tế để xuất kho!');
+      showNotification('Không có dữ liệu thực tế để xuất kho!', 'error');
     }
   };
 
@@ -424,8 +403,10 @@ export default function App() {
     
     try {
       await api.products.upsert(updatedProduct);
+      showNotification('Sản phẩm đã được lưu.');
     } catch (error) {
       console.error('Error syncing product:', error);
+      showNotification('Lỗi khi lưu sản phẩm.', 'error');
     }
     
     setIsProductModalOpen(false);
@@ -450,8 +431,10 @@ export default function App() {
     
     try {
       await api.transactions.upsert(updatedTransaction);
+      showNotification('Giao dịch đã được lưu.');
     } catch (error) {
       console.error('Error syncing transaction:', error);
+      showNotification('Lỗi khi lưu giao dịch.', 'error');
     }
     
     setIsTransactionModalOpen(false);
@@ -475,8 +458,10 @@ export default function App() {
     
     try {
       await api.customers.upsert(updatedCustomer);
+      showNotification('Khách hàng đã được lưu.');
     } catch (error) {
       console.error('Error syncing customer:', error);
+      showNotification('Lỗi khi lưu khách hàng.', 'error');
     }
     
     setIsCustomerModalOpen(false);
@@ -495,7 +480,6 @@ export default function App() {
       }
       setEditingId(null);
     } else {
-      // Merge if duplicate QRCODE and Location in inventory
       if (locationSubTab === 'inventory') {
         const existingIndex = locationInventoryEntries.findIndex(
           entry => entry.qrcode === newLocationEntry.qrcode && entry.location === newLocationEntry.location
@@ -521,7 +505,6 @@ export default function App() {
           setLocationInventoryEntries(prev => [...prev, updatedEntry]);
         }
       } else {
-        // locationSubTab === 'input' || locationSubTab === 'output'
         updatedEntry = {
           ...newLocationEntry as LocationEntry,
           id: generateId(),
@@ -530,7 +513,6 @@ export default function App() {
         };
         setLocationEntries([updatedEntry, ...locationEntries]);
 
-        // Also update inventory
         const existingIndex = locationInventoryEntries.findIndex(
           entry => entry.qrcode === newLocationEntry.qrcode && entry.location === newLocationEntry.location
         );
@@ -571,7 +553,6 @@ export default function App() {
             const newQty = (existing.quantity || 0) - (newLocationEntry.quantity || 0);
             
             if (newQty <= 0) {
-              // Remove if fully exported
               setLocationInventoryEntries(prev => prev.filter((_, i) => i !== existingIndex));
               try {
                 await api.locationEntries.delete(existing.id);
@@ -579,7 +560,6 @@ export default function App() {
                 console.error('Error deleting inventory entry:', error);
               }
             } else {
-              // Update with remaining quantity
               const updatedInventoryEntry: LocationEntry = {
                 ...existing,
                 quantity: newQty
@@ -598,8 +578,10 @@ export default function App() {
     
     try {
       await api.locationEntries.upsert(updatedEntry);
+      showNotification('Vị trí đã được lưu.');
     } catch (error) {
       console.error('Error syncing location entry:', error);
+      showNotification('Lỗi khi lưu vị trí.', 'error');
     }
     
     setIsLocationModalOpen(false);
@@ -608,7 +590,6 @@ export default function App() {
 
   const processLocationData = async (data: any[]) => {
     const newEntries: any[] = data.map((row: any) => {
-      // Normalize row keys
       const normalizedRow: any = {};
       Object.keys(row).forEach(key => {
         normalizedRow[key.toLowerCase().trim()] = row[key];
@@ -617,7 +598,6 @@ export default function App() {
       const qrcode = String(normalizedRow['qrcode'] || normalizedRow['qr code'] || row['QR Code'] || row['qrcode'] || '').trim();
       const parsed = parseQRCode(qrcode);
       
-      // If QR code matches AWB-XXXXXX- format (starts with AWB and no |), don't use default date
       const isSimpleAWB = qrcode.toUpperCase().startsWith('AWB-') && !qrcode.includes('|');
       const defaultDate = isSimpleAWB ? '' : format(new Date(), 'dd/MM/yyyy');
 
@@ -630,11 +610,10 @@ export default function App() {
         note: normalizedRow['note'] || normalizedRow['ghi chú'] || normalizedRow['cuộn'] || normalizedRow['cuon'] || row['Cuộn'] || row['Ghi chú'] || row['note'] || '',
         quantity: parseInt(String(normalizedRow['quantity'] || normalizedRow['số lượng'] || normalizedRow['so luong'] || row['Số lượng'] || row['quantity'] || '1')) || 1
       };
-    }).filter(entry => entry.qrcode); // Lọc bỏ dòng không có QR code
+    }).filter(entry => entry.qrcode);
 
     if (newEntries.length === 0) return;
 
-    // Update location log (locationEntries) - Keep as a log (don't group) to match manual scan behavior
     const currentScanType = locationSubTab === 'output' ? 'OUTPUT' : 'INPUT';
     const logEntriesToAdd: LocationEntry[] = newEntries.map(entry => ({
       ...entry,
@@ -645,8 +624,6 @@ export default function App() {
 
     setLocationEntries(prev => [...logEntriesToAdd, ...prev]);
 
-    // Update inventory (locationInventoryEntries) - Group by QR code and location
-    // Dùng functional update để lấy giá trị mới nhất, tránh stale closure
     let finalInventoryEntries: LocationEntry[] = [];
     let entriesToDeleteFromDb: LocationEntry[] = [];
     
@@ -689,7 +666,6 @@ export default function App() {
 
       const newFinal = Array.from(inventoryGrouped.values());
       
-      // Tìm entries bị xóa (OUTPUT đã xuất hết) để xóa khỏi DB
       const prevIds = new Set(prev.map(e => e.id));
       const newIds = new Set(newFinal.map(e => e.id));
       entriesToDeleteFromDb = prev.filter(e => prevIds.has(e.id) && !newIds.has(e.id));
@@ -698,7 +674,6 @@ export default function App() {
       return newFinal;
     });
     
-    // Sync to Supabase sau khi state đã được cập nhật
     try {
       const syncTasks: Promise<void>[] = [
         api.locationEntries.upsertAll(logEntriesToAdd),
@@ -708,89 +683,133 @@ export default function App() {
         entriesToDeleteFromDb.forEach(e => syncTasks.push(api.locationEntries.delete(e.id)));
       }
       await Promise.all(syncTasks);
+      showNotification('Nhập file vị trí thành công.');
     } catch (error) {
       console.error('Error syncing location entries:', error);
-      alert('Nhập file thành công nhưng có lỗi khi lưu lên server. Vui lòng nhấn "Lưu tất cả" để thử lại.');
+      showNotification('Lỗi khi lưu dữ liệu vị trí.', 'error');
     }
   };
 
 
   const handleDelete = async (id: string, type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote') => {
+    if (type === 'product') {
+      setProducts(prev => prev.filter(p => p.id !== id));
+      setTransactions(prev => prev.filter(t => t.productId !== id));
+    } else if (type === 'transaction') {
+      setTransactions(prev => prev.filter(t => t.id !== id));
+    } else if (type === 'customer') {
+      setCustomers(prev => prev.filter(c => c.id !== id));
+    } else if (type === 'location') {
+      const qrcode = deleteTarget?.qrcode;
+      if (qrcode) {
+        setLocationEntries(prev => prev.filter(e => e.qrcode !== qrcode));
+        setLocationInventoryEntries(prev => prev.filter(e => e.qrcode !== qrcode));
+      } else {
+        setLocationEntries(prev => prev.filter(e => e.id !== id));
+        setLocationInventoryEntries(prev => prev.filter(e => e.id !== id));
+      }
+    } else if (type === 'savedDeliveryNote') {
+      setSavedDeliveryNotes(prev => prev.filter(n => n.id !== id));
+    }
+
     try {
       if (type === 'product') {
+        await api.transactions.deleteByProductId(id);
         await api.products.delete(id);
-        setProducts(prev => prev.filter(p => p.id !== id));
-      }
-      if (type === 'transaction') {
+      } else if (type === 'transaction') {
         await api.transactions.delete(id);
-        setTransactions(prev => prev.filter(t => t.id !== id));
-      }
-      if (type === 'customer') {
+      } else if (type === 'customer') {
         await api.customers.delete(id);
-        setCustomers(prev => prev.filter(c => c.id !== id));
-      }
-      if (type === 'location') {
+      } else if (type === 'location') {
         const qrcode = deleteTarget?.qrcode;
         if (qrcode) {
           await api.locationEntries.deleteByQRCode(qrcode);
-          setLocationEntries(prev => prev.filter(e => e.qrcode !== qrcode));
-          setLocationInventoryEntries(prev => prev.filter(e => e.qrcode !== qrcode));
         } else {
           await api.locationEntries.delete(id);
-          setLocationEntries(prev => prev.filter(e => e.id !== id));
-          setLocationInventoryEntries(prev => prev.filter(e => e.id !== id));
         }
-      }
-      if (type === 'savedDeliveryNote') {
+      } else if (type === 'savedDeliveryNote') {
         await api.savedDeliveryNotes.delete(id);
-        setSavedDeliveryNotes(prev => prev.filter(n => n.id !== id));
       }
-    } catch (error) {
+      showNotification('Đã xóa dữ liệu thành công.');
+    } catch (error: any) {
       console.error('Error syncing deletion:', error);
-      alert('Không thể xóa mục này. Vui lòng thử lại.');
+      showNotification('Lỗi khi xóa dữ liệu: ' + (error.message || 'Vui lòng thử lại sau.'), 'error');
+      loadData();
     }
   };
 
   const handleBulkDelete = async () => {
-    try {
-      if (activeTab === 'inventory') {
-        const productIdsToDelete = selectedRows.map(batchKey => {
-          const item = inventory.find(i => i.id === batchKey);
-          return item?.productId;
-        }).filter(Boolean) as string[];
-        
-        await Promise.all(productIdsToDelete.map(id => api.products.delete(id)));
-        setProducts(prev => prev.filter(p => !productIdsToDelete.includes(p.id)));
-      }
-      if (activeTab === 'inbound' || activeTab === 'outbound') {
-        await Promise.all(selectedRows.map(id => api.transactions.delete(id)));
-        setTransactions(prev => prev.filter(t => !selectedRows.includes(t.id)));
-      }
-      if (activeTab === 'customers') {
-        await Promise.all(selectedRows.map(id => api.customers.delete(id)));
-        setCustomers(prev => prev.filter(c => !selectedRows.includes(c.id)));
-      }
-      if (activeTab === 'location') {
-        if (locationSubTab === 'input' || locationSubTab === 'output') {
-          // Only delete specific log entries
-          await Promise.all(selectedRows.map(id => api.locationEntries.delete(id)));
-          setLocationEntries(prev => prev.filter(e => !selectedRows.includes(e.id)));
-        } else {
-          // Delete by QR code for inventory view
-          const qrcodesToDelete = selectedRows.map(id => {
-            const entry = locationInventoryEntries.find(e => e.id === id);
-            return entry?.qrcode;
-          }).filter(Boolean) as string[];
+    const idsToDelete = [...selectedRows];
+    const currentTab = activeTab;
+    const subTab = locationSubTab;
 
-          await Promise.all(qrcodesToDelete.map(qrcode => api.locationEntries.deleteByQRCode(qrcode)));
-          setLocationEntries(prev => prev.filter(e => !qrcodesToDelete.includes(e.qrcode)));
-          setLocationInventoryEntries(prev => prev.filter(e => !qrcodesToDelete.includes(e.qrcode)));
+    if (currentTab === 'inventory') {
+      const productIds = idsToDelete.map(batchKey => {
+        const item = inventory.find(i => i.id === batchKey);
+        return item?.productId;
+      }).filter(Boolean) as string[];
+      const uniqueProductIds = [...new Set(productIds)];
+      setProducts(prev => prev.filter(p => !uniqueProductIds.includes(p.id)));
+      setTransactions(prev => prev.filter(t => !uniqueProductIds.includes(t.productId)));
+      
+      try {
+        await Promise.all(uniqueProductIds.map(async (id) => {
+          await api.transactions.deleteByProductId(id);
+          await api.products.delete(id);
+        }));
+        showNotification(`Đã xóa ${uniqueProductIds.length} mặt hàng thành công.`);
+      } catch (error: any) {
+        console.error('Error in bulk delete:', error);
+        showNotification('Lỗi khi xóa hàng loạt: ' + (error.message || ''), 'error');
+        loadData();
+      }
+    } else if (currentTab === 'inbound' || currentTab === 'outbound') {
+      setTransactions(prev => prev.filter(t => !idsToDelete.includes(t.id)));
+      try {
+        await Promise.all(idsToDelete.map(id => api.transactions.delete(id)));
+        showNotification('Đã xóa các giao dịch thành công.');
+      } catch (error) {
+        showNotification('Lỗi khi xóa giao dịch.', 'error');
+        loadData();
+      }
+    } else if (currentTab === 'customers') {
+      setCustomers(prev => prev.filter(c => !idsToDelete.includes(c.id)));
+      try {
+        await Promise.all(idsToDelete.map(id => api.customers.delete(id)));
+        showNotification('Đã xóa các khách hàng thành công.');
+      } catch (error) {
+        showNotification('Lỗi khi xóa khách hàng.', 'error');
+        loadData();
+      }
+    } else if (currentTab === 'location') {
+      if (subTab === 'input' || subTab === 'output') {
+        setLocationEntries(prev => prev.filter(e => !idsToDelete.includes(e.id)));
+        try {
+          await Promise.all(idsToDelete.map(id => api.locationEntries.delete(id)));
+          showNotification('Đã xóa các mục vị trí thành công.');
+        } catch (error) {
+          showNotification('Lỗi khi xóa vị trí.', 'error');
+          loadData();
+        }
+      } else {
+        const qrcodes = idsToDelete.map(id => {
+          const entry = locationInventoryEntries.find(e => e.id === id);
+          return entry?.qrcode;
+        }).filter(Boolean) as string[];
+        const uniqueQrcodes = [...new Set(qrcodes)];
+        
+        setLocationEntries(prev => prev.filter(e => !uniqueQrcodes.includes(e.qrcode)));
+        setLocationInventoryEntries(prev => prev.filter(e => !uniqueQrcodes.includes(e.qrcode)));
+        try {
+          await Promise.all(uniqueQrcodes.map(qrcode => api.locationEntries.deleteByQRCode(qrcode)));
+          showNotification('Đã xóa các mục tồn vị trí thành công.');
+        } catch (error) {
+          showNotification('Lỗi khi xóa tồn vị trí.', 'error');
+          loadData();
         }
       }
-    } catch (error) {
-      console.error('Error syncing bulk deletion:', error);
-      alert('Không thể xóa các mục đã chọn. Vui lòng thử lại.');
     }
+
     setSelectedRows([]);
   };
 
@@ -811,11 +830,10 @@ export default function App() {
           date: deliveryNoteHeader.date
         })
       ]);
-      // Using a simple alert for now as requested
-      alert('Dữ liệu đã được lưu trữ thành công!');
+      showNotification('Dữ liệu đã được lưu trữ thành công!');
     } catch (error) {
       console.error('Lỗi khi lưu dữ liệu:', error);
-      alert('Có lỗi xảy ra khi lưu dữ liệu. Vui lòng kiểm tra lại kết nối.');
+      showNotification('Có lỗi xảy ra khi lưu dữ liệu. Vui lòng kiểm tra lại kết nối.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -836,27 +854,24 @@ export default function App() {
     setSelectedRows(prev => prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]);
   };
 
-  // Derived Inventory State
   const inventory = useMemo(() => {
     const batches: Record<string, InventoryItem> = {};
     const productMap = new Map<string, Product>(products.map(p => [p.id, p]));
     const productsWithTransactions = new Set<string>();
 
-    // Process all transactions to group by batch
     transactions.forEach(t => {
       const product = productMap.get(t.productId);
       if (!product) return;
 
       productsWithTransactions.add(t.productId);
 
-      // Define a batch by product ID and its metadata
       const batchKey = `${t.productId}-${t.lotNo || ''}-${t.designationCode || ''}-${t.loaiChiDinh || ''}`;
       
       if (!batches[batchKey]) {
         batches[batchKey] = {
           ...product,
-          id: batchKey, // Unique ID for the row in the table
-          productId: product.id, // Keep reference to original product
+          id: batchKey,
+          productId: product.id,
           lotNo: t.lotNo || '',
           ghiChu: t.ghiChu || '',
           designationCode: t.designationCode || '',
@@ -875,7 +890,6 @@ export default function App() {
       batches[batchKey].currentStock = batches[batchKey].totalInbound - batches[batchKey].totalOutbound;
     });
 
-    // Also include products that have no transactions yet
     products.forEach(product => {
       if (!productsWithTransactions.has(product.id)) {
         const batchKey = `${product.id}-empty`;
@@ -928,7 +942,6 @@ export default function App() {
   const filteredLocationInventoryEntries = useMemo(() => {
     const query = locationSearch.toLowerCase();
     
-    // Group by QRCODE
     const groupedMap = new Map<string, LocationEntry>();
     
     locationInventoryEntries.forEach(entry => {
@@ -936,21 +949,18 @@ export default function App() {
       if (groupedMap.has(qrcode)) {
         const existing = groupedMap.get(qrcode)!;
         
-        // Merge locations
         const currentLocs = (existing.location || '').split(',').map(l => l.trim()).filter(Boolean);
         const newLoc = (entry.location || '').trim();
         if (newLoc && !currentLocs.includes(newLoc)) {
           existing.location = currentLocs.length > 0 ? `${existing.location}, ${newLoc}` : newLoc;
         }
         
-        // Merge notes
         const currentNotes = (existing.note || '').split(',').map(n => n.trim()).filter(Boolean);
         const newNote = (entry.note || '').trim();
         if (newNote && !currentNotes.includes(newNote)) {
           existing.note = currentNotes.length > 0 ? `${existing.note}, ${newNote}` : newNote;
         }
 
-        // Sum quantities
         existing.quantity = (existing.quantity || 0) + (entry.quantity || 0);
       } else {
         groupedMap.set(qrcode, { ...entry });
@@ -969,22 +979,19 @@ export default function App() {
   }, [locationInventoryEntries, locationSearch]);
 
   const parseDate = useCallback((dateStr: string) => {
-    // Try dd/MM/yyyy first
     let parsed = parse(dateStr, 'dd/MM/yyyy', new Date());
     if (isValid(parsed)) return parsed;
     
-    // Fallback to standard Date parsing
     parsed = new Date(dateStr);
     if (isValid(parsed)) return parsed;
 
-    return new Date(0); // Epoch as fallback
+    return new Date(0);
   }, []);
 
   const filteredTransactions = useMemo(() => {
     const productMap = new Map<string, Product>(products.map(p => [p.id, p]));
     const query = searchQuery.toLowerCase();
     
-    // Pre-parse dates for sorting to avoid repeated parsing
     const transactionWithTimestamps = transactions
       .filter(t => {
         const product = productMap.get(t.productId);
@@ -1011,13 +1018,11 @@ export default function App() {
 
   const processData = (data: any[]) => {
     if (activeTab === 'inventory') {
-      // Import/Update Products
       setProducts(prev => {
         const updatedProducts = [...prev];
         const skuToProductIndex = new Map(updatedProducts.map((p, i) => [p.sku, i]));
 
         data.forEach((row, index) => {
-          // Normalize row keys
           const normalizedRow: any = {};
           Object.keys(row).forEach(key => {
             normalizedRow[key.toLowerCase().trim()] = row[key];
@@ -1071,13 +1076,10 @@ export default function App() {
         return updatedProducts;
       });
     } else if (activeTab === 'inbound' || activeTab === 'outbound') {
-      // Import Transactions
-      // First, ensure all products mentioned in the file exist and are up to date
       setProducts(prevProducts => {
         const updatedProducts = [...prevProducts];
         const newProductsToAdd: Product[] = [];
         
-        // Optimization: Use maps for faster SKU lookups
         const skuToProductIndex = new Map(updatedProducts.map((p, i) => [p.sku, i]));
         const skuToNewProductIndex = new Map<string, number>();
 
@@ -1132,36 +1134,28 @@ export default function App() {
           const alreadyInNewIndex = skuToNewProductIndex.get(sku);
           
           if (existingIndex !== undefined) {
-            // Update name if provided and different
             if (name && updatedProducts[existingIndex].name !== name && name !== 'Sản phẩm mới') {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], name };
             }
-            // Update designationCode if provided
             if (designationCode && updatedProducts[existingIndex].designationCode !== designationCode) {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], designationCode };
             }
-            // Update loaiChiDinh if provided
             if (loaiChiDinh && updatedProducts[existingIndex].loaiChiDinh !== loaiChiDinh) {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], loaiChiDinh };
             }
-            // Update ghiChu if provided
             if (ghiChu && updatedProducts[existingIndex].ghiChu !== ghiChu) {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], ghiChu };
             }
           } else if (alreadyInNewIndex !== undefined) {
-            // Update name in the new products list if provided
             if (name && newProductsToAdd[alreadyInNewIndex].name === 'Sản phẩm mới' && name !== 'Sản phẩm mới') {
               newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], name };
             }
-            // Update designationCode if provided
             if (designationCode && newProductsToAdd[alreadyInNewIndex].designationCode === '') {
               newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], designationCode };
             }
-            // Update loaiChiDinh if provided
             if (loaiChiDinh && (!newProductsToAdd[alreadyInNewIndex].loaiChiDinh || newProductsToAdd[alreadyInNewIndex].loaiChiDinh === '')) {
               newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], loaiChiDinh };
             }
-            // Update ghiChu if provided
             if (ghiChu && newProductsToAdd[alreadyInNewIndex].ghiChu === '') {
               newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], ghiChu };
             }
@@ -1186,7 +1180,6 @@ export default function App() {
         const finalProducts = [...updatedProducts, ...newProductsToAdd];
         const finalProductsMap = new Map(finalProducts.map(p => [p.sku, p]));
 
-        // Now process transactions using the final products list
         const newTransactions: Transaction[] = data.map((row, index) => {
           const normalizedRow: any = {};
           Object.keys(row).forEach(key => {
@@ -1243,34 +1236,60 @@ export default function App() {
         return finalProducts;
       });
     } else if (activeTab === 'customers') {
-      // Import Customers
       setCustomers(prev => {
-        const updatedCustomers = [...prev];
         const newCustomers: Customer[] = [];
-        const codeToCustomerIndex = new Map(updatedCustomers.map((c, i) => [c.code, i]));
-
+        const currentCustomers = [...prev];
+        
         data.forEach((row, index) => {
-          const code = String(row.code || row.Code || row['Mã'] || '').trim();
-          if (!code) return;
+          const normalizedRow: any = {};
+          Object.keys(row).forEach(key => {
+            normalizedRow[key.toLowerCase().trim()] = row[key];
+          });
 
-          const existingIndex = codeToCustomerIndex.get(code);
-          const customerData: Customer = {
-            id: existingIndex !== undefined ? updatedCustomers[existingIndex].id : generateId(),
-            code: code,
-            name: row.name || row.Name || row['Tên'] || 'Khách hàng mới',
-          };
-
-          if (existingIndex !== undefined) {
-            updatedCustomers[existingIndex] = customerData;
-          } else {
-            codeToCustomerIndex.set(code, updatedCustomers.length);
-            updatedCustomers.push(customerData);
-            newCustomers.push(customerData);
+          const code = String(
+            normalizedRow['code'] || 
+            normalizedRow['mã'] || 
+            normalizedRow['mã khách hàng'] || 
+            normalizedRow['mã kh'] || 
+            normalizedRow['customer code'] || 
+            normalizedRow['cust code'] ||
+            row['Code'] || row['code'] || row['Mã'] || ''
+          ).trim();
+          
+          const name = String(
+            normalizedRow['name'] || 
+            normalizedRow['tên'] || 
+            normalizedRow['tên khách hàng'] || 
+            normalizedRow['tên kh'] || 
+            normalizedRow['customer name'] || 
+            normalizedRow['cust name'] ||
+            row['Name'] || row['name'] || row['Tên'] || ''
+          ).trim();
+          
+          if (code && name) {
+            const existsInCurrent = currentCustomers.find(c => 
+              c.code.toLowerCase() === code.toLowerCase() && 
+              c.name.toLowerCase() === name.toLowerCase()
+            );
+            const existsInNew = newCustomers.find(c => 
+              c.code.toLowerCase() === code.toLowerCase() && 
+              c.name.toLowerCase() === name.toLowerCase()
+            );
+            
+            if (!existsInCurrent && !existsInNew) {
+              newCustomers.push({
+                id: generateId(),
+                code,
+                name
+              });
+            }
           }
         });
-        
-        Promise.all(updatedCustomers.map(c => api.customers.upsert(c))).catch(err => console.error('Error syncing customers:', err));
-        return updatedCustomers;
+
+        if (newCustomers.length === 0) return prev;
+        const updated = [...prev, ...newCustomers];
+        Promise.all(newCustomers.map(c => api.customers.upsert(c))).catch(err => console.error('Error syncing customers:', err));
+        return updated;
       });
     }
   };
@@ -1328,8 +1347,8 @@ export default function App() {
             sku: String(row[1] || '').trim() || parsed?.sku || '',
             partner: String(row[2] || '').trim() || parsed?.partner || '',
             date: String(row[3] || '').trim() || parsed?.date || '',
-            note: String(row[4] || '').trim(), // Cuộn (Note)
-            location: String(row[5] || '').trim(), // Vị trí (Location)
+            note: String(row[4] || '').trim(),
+            location: String(row[5] || '').trim(),
             quantity: parseInt(String(row[6] || '1')) || 1
           });
         }
@@ -1341,17 +1360,14 @@ export default function App() {
       }
     });
 
-    // Filter out outputted QR codes from the input list in the same sheet
     const filtered = inputEntries.filter(entry => !outputQRCodes.has(entry.qrcode));
     
-    // Group by QR code and location to prevent duplicates
     const grouped = new Map<string, any>();
     filtered.forEach(entry => {
       const key = `${entry.qrcode}|${entry.location}`;
       if (!grouped.has(key)) {
         grouped.set(key, { ...entry });
       } else {
-        // If duplicate (same QR and same Location), we can update other fields if they were empty
         const existing = grouped.get(key);
         if (!existing.sku) existing.sku = entry.sku;
         if (!existing.partner) existing.partner = entry.partner;
@@ -1397,7 +1413,6 @@ export default function App() {
         const workbook = XLSX.read(data, { type: 'array' });
         
         if (activeTab === 'location' && locationSubTab === 'inventory') {
-          // Use 3rd sheet for location inventory (index 2)
           const sheetName = workbook.SheetNames[2] || workbook.SheetNames[0];
           const worksheet = workbook.Sheets[sheetName];
           const sheetData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
@@ -1409,12 +1424,10 @@ export default function App() {
             type: 'inventory'
           }));
           
-          // Merge with existing inventory entries using functional update
           setLocationInventoryEntries(prev => {
             const grouped = new Map<string, LocationEntry>();
             prev.forEach(entry => {
               const key = `${entry.qrcode}|${entry.location || ''}`;
-              // Only keep entries that are NOT in the output list
               if (!outputQRCodes.includes(entry.qrcode)) {
                 grouped.set(key, { ...entry });
               }
@@ -1424,7 +1437,6 @@ export default function App() {
               const key = `${entry.qrcode}|${entry.location || ''}`;
               if (grouped.has(key)) {
                 const existing = grouped.get(key)!;
-                // Update fields if they were empty in the existing entry
                 if (!existing.sku) existing.sku = entry.sku;
                 if (!existing.partner) existing.partner = entry.partner;
                 if (!existing.date) existing.date = entry.date;
@@ -1437,15 +1449,12 @@ export default function App() {
             
             const finalEntries = Array.from(grouped.values());
             
-            // Sync to Supabase
             (async () => {
               try {
-                // For output: delete from DB
                 const entriesToDelete = prev.filter(e => outputQRCodes.includes(e.qrcode));
                 if (entriesToDelete.length > 0) {
                   await Promise.all(entriesToDelete.map(e => api.locationEntries.delete(e.id)));
                 }
-                // For input: upsert to DB
                 if (finalEntries.length > 0) {
                   await api.locationEntries.upsertAll(finalEntries);
                 }
@@ -1482,7 +1491,6 @@ export default function App() {
     const productMap = new Map<string, Product>(products.map(p => [p.sku, p]));
     const customerMap = new Map<string, Customer>(customers.map(c => [c.name.toLowerCase(), c]));
     
-    // Group inventory by SKU for faster lookup
     const inventoryBySku = new Map<string, InventoryItem[]>();
     inventory.forEach(item => {
       if (!inventoryBySku.has(item.sku)) {
@@ -1500,7 +1508,6 @@ export default function App() {
     ];
 
     const extractDateFromLot = (lot: string): number => {
-      // Try slash format: dd/mm/yy or dd/mm/yyyy
       const slashMatch = lot.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
       if (slashMatch) {
         let [_, d, m, y] = slashMatch;
@@ -1508,7 +1515,6 @@ export default function App() {
         return new Date(year, parseInt(m) - 1, parseInt(d)).getTime();
       }
       
-      // Try hyphen format: dd-mm-yyyy or dd-mm-yy
       const hyphenMatch = lot.match(/(\d{1,2})-(\d{1,2})-(\d{2,4})/);
       if (hyphenMatch) {
         let [_, d, m, y] = hyphenMatch;
@@ -1516,7 +1522,6 @@ export default function App() {
         return new Date(year, parseInt(m) - 1, parseInt(d)).getTime();
       }
 
-      // Try yyyy-mm-dd or yy-mm-dd
       const isoMatch = lot.match(/(\d{2,4})-(\d{1,2})-(\d{1,2})/);
       if (isoMatch) {
         let [_, y, m, d] = isoMatch;
@@ -1524,7 +1529,6 @@ export default function App() {
         return new Date(year, parseInt(m) - 1, parseInt(d)).getTime();
       }
 
-      // If no date found, return a very large number so it's picked last in FIFO
       return 9999999999999;
     };
 
@@ -1558,7 +1562,6 @@ export default function App() {
       return '';
     };
 
-    // Track remaining stock during allocation to respect FIFO across multiple rows
     const workingInventory = inventory.map(item => ({
       ...item,
       tempStock: item.currentStock
@@ -1574,7 +1577,6 @@ export default function App() {
       const ovnProductionOrder = String(row['OVN Production Order'] || '').trim();
       const qtyNeeded = Number(row['Quantity'] || row['Qty ERP'] || 0);
 
-      // Find best stock based on priority and FIFO
       const availableStock = workingInventory.filter(item => item.sku === itemNo && item.tempStock > 0);
       
       let bestBatch: typeof workingInventory[0] | undefined;
@@ -1585,7 +1587,6 @@ export default function App() {
         );
         
         if (matchingBatches.length > 0) {
-          // Sort by date (FIFO) within the same priority
           matchingBatches.sort((a, b) => extractDateFromLot(a.lotNo || '') - extractDateFromLot(b.lotNo || ''));
 
           if (priorityType === "CHI DINH THEO SO") {
@@ -1611,7 +1612,6 @@ export default function App() {
               break;
             }
           } else {
-            // For other types, take the oldest available
             bestBatch = matchingBatches[0];
             break;
           }
@@ -1622,7 +1622,6 @@ export default function App() {
         bestBatch.tempStock -= qtyNeeded;
       }
 
-      // Look up location from locationInventoryEntries
       const normalizedLotDate = normalizeDateForMatching(bestBatch?.lotNo || '');
       const locationEntry = locationInventoryEntries.find(e => 
         e.sku === itemNo && e.date === normalizedLotDate
@@ -1630,7 +1629,7 @@ export default function App() {
 
       return {
         id: generateId(),
-        no: 0, // Will be re-indexed
+        no: 0,
         ovnSaleOrder: ovnSaleOrder,
         ovnProductionOrder: ovnProductionOrder,
         item: itemNo,
@@ -1649,10 +1648,8 @@ export default function App() {
       };
     });
 
-    // Sort by item (A-Z)
     const sortedData = mappedData.sort((a, b) => a.item.localeCompare(b.item));
     
-    // Group and calculate adjustments
     const groups: { [key: string]: DeliveryNoteItem[] } = {};
     sortedData.forEach(item => {
       if (!groups[item.item]) groups[item.item] = [];
@@ -1667,21 +1664,17 @@ export default function App() {
         const roundedTotal = Math.ceil(totalQtyErp);
         const diff = roundedTotal - totalQtyErp;
         
-        // Find row with largest Qty ERP among valid rows
         let maxRow = validRows[0];
         validRows.forEach(item => {
           if (item.qtyErp > maxRow.qtyErp) maxRow = item;
         });
         
-        // Adjust max row
         maxRow.actualQty = maxRow.qtyErp + diff;
         
-        // Set actualIssuedQty for all rows in group (total rounded of valid rows)
         group.forEach(item => {
           item.actualIssuedQty = roundedTotal;
         });
       } else {
-        // All rows in group are out of stock
         group.forEach(item => {
           item.actualQty = 0;
           item.actualIssuedQty = 0;
@@ -1689,7 +1682,6 @@ export default function App() {
       }
     });
 
-    // Re-index No.
     const finalData = sortedData.map((item, index) => ({
       ...item,
       no: index + 1
@@ -1705,7 +1697,6 @@ export default function App() {
       const currentCustomers = [...prev];
       
       data.forEach((row, index) => {
-        // Create a normalized version of the row with lowercase keys for easier matching
         const normalizedRow: any = {};
         Object.keys(row).forEach(key => {
           normalizedRow[key.toLowerCase().trim()] = row[key];
@@ -1732,12 +1723,10 @@ export default function App() {
         ).trim();
         
         if (code && name) {
-          // Check if already in existing customers
           const existsInCurrent = currentCustomers.find(c => 
             c.code.toLowerCase() === code.toLowerCase() && 
             c.name.toLowerCase() === name.toLowerCase()
           );
-          // Check if already in newCustomers (to avoid duplicates within the file)
           const existsInNew = newCustomers.find(c => 
             c.code.toLowerCase() === code.toLowerCase() && 
             c.name.toLowerCase() === name.toLowerCase()
@@ -1755,7 +1744,7 @@ export default function App() {
 
       if (newCustomers.length === 0) return prev;
       const updated = [...prev, ...newCustomers];
-      api.customers.upsertAll(newCustomers).catch(err => console.error('Error syncing customers:', err));
+      Promise.all(newCustomers.map(c => api.customers.upsert(c))).catch(err => console.error('Error syncing customers:', err));
       return updated;
     });
   };
@@ -1790,7 +1779,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans flex">
-      {/* Sidebar */}
       <aside className="w-64 border-r border-[#141414] flex flex-col">
         <div className="p-6 border-bottom border-[#141414]">
           <h1 className="font-serif italic text-2xl font-bold tracking-tight">KHO.LOG</h1>
@@ -1855,9 +1843,7 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
         <header className="h-20 border-b border-[#141414] flex items-center justify-between px-8 bg-[#E4E3E0]/80 backdrop-blur-sm z-10">
           <div className="flex items-center gap-4 flex-1 max-w-md">
             <Search size={18} className="opacity-40" />
@@ -1931,7 +1917,6 @@ export default function App() {
           </div>
         </header>
 
-        {/* Supabase Warning Banner */}
         {!isSupabaseConfigured && (
           <div className="bg-amber-100 border-b border-amber-200 px-8 py-2 flex items-center justify-between">
             <div className="flex items-center gap-3 text-amber-800 text-[10px]">
@@ -1949,7 +1934,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-8">
           <AnimatePresence mode="wait">
             {activeTab === 'dashboard' && (
@@ -2437,28 +2421,26 @@ export default function App() {
                         const workbook = new ExcelJS.Workbook();
                         const worksheet = workbook.addWorksheet('Delivery Note');
 
-                        // Set column widths
                         worksheet.columns = [
-                          { width: 5 },  // No
-                          { width: 20 }, // OVN Sale Order
-                          { width: 20 }, // OVN Production Order
-                          { width: 15 }, // item
-                          { width: 35 }, // Material Name
-                          { width: 8 },  // Unit
-                          { width: 12 }, // Qty ERP
-                          { width: 12 }, // Thực tế
-                          { width: 15 }, // Lot No
-                          { width: 15 }, // Số lượng thực phát
-                          { width: 15 }, // remark
-                          { width: 15 }, // Brand
-                          { width: 20 }, // Customer code
-                          { width: 20 }, // Final Destination
-                          { width: 10 }, // No.
-                          { width: 10 }, // Vị trí
-                          { width: 10 }  // STOCK
+                          { width: 5 },
+                          { width: 20 },
+                          { width: 20 },
+                          { width: 15 },
+                          { width: 35 },
+                          { width: 8 },
+                          { width: 12 },
+                          { width: 12 },
+                          { width: 15 },
+                          { width: 15 },
+                          { width: 15 },
+                          { width: 15 },
+                          { width: 20 },
+                          { width: 20 },
+                          { width: 10 },
+                          { width: 10 },
+                          { width: 10 }
                         ];
 
-                        // Title
                         const titleRow = worksheet.addRow(['', 'PHIẾU GIAO NHẬN FABRIC']);
                         titleRow.getCell(2).font = { name: 'Times New Roman', size: 16, bold: true };
                         titleRow.getCell(2).alignment = { horizontal: 'center' };
@@ -2469,9 +2451,8 @@ export default function App() {
                         subtitleRow.getCell(2).alignment = { horizontal: 'center' };
                         worksheet.mergeCells(2, 2, 2, 17);
 
-                        worksheet.addRow([]); // Empty row
+                        worksheet.addRow([]);
 
-                        // Metadata
                         const meta1 = worksheet.addRow(['Mã Tài Liệu:', deliveryNoteHeader.documentCode]);
                         meta1.getCell(1).font = { bold: true };
                         const meta2 = worksheet.addRow(['Dept:', deliveryNoteHeader.dept]);
@@ -2481,9 +2462,8 @@ export default function App() {
                         const meta4 = worksheet.addRow(['Date:', deliveryNoteHeader.date]);
                         meta4.getCell(1).font = { bold: true };
 
-                        worksheet.addRow([]); // Empty row before table
+                        worksheet.addRow([]);
 
-                        // Header
                         const headerRow = worksheet.addRow([
                           'No', 'OVN Sale Order', 'OVN Production Order', 'item', 'Material Name', 
                           'Unit', 'Qty ERP', 'Thực tế', 'Lot No', 'Số lượng thực phát', 
@@ -2506,7 +2486,6 @@ export default function App() {
                           };
                         });
 
-                        // Data
                         let totalQtyErp = 0;
                         let totalActualQty = 0;
                         let totalActualIssuedQty = 0;
@@ -2549,7 +2528,6 @@ export default function App() {
                             };
                             cell.font = { size: 9 };
                             
-                            // Alignments
                             if ([1, 6, 10].includes(colNumber)) {
                               cell.alignment = { horizontal: 'center' };
                             } else if ([7, 8].includes(colNumber)) {
@@ -2558,10 +2536,9 @@ export default function App() {
                           });
                         });
 
-                        // Merges for "Số lượng thực phát" (Column 10)
                         let currentItem = '';
                         let startMergeRow = 0;
-                        const dataStartRow = 9; // Header is at row 8, data starts at 9
+                        const dataStartRow = 9;
 
                         deliveryNotes.forEach((item, index) => {
                           const rowIdx = dataStartRow + index;
@@ -2572,7 +2549,6 @@ export default function App() {
                             currentItem = item.item;
                             startMergeRow = rowIdx;
                           }
-                          // Last group
                           if (index === deliveryNotes.length - 1) {
                             if (rowIdx > startMergeRow) {
                               worksheet.mergeCells(startMergeRow, 10, rowIdx, 10);
@@ -2580,7 +2556,6 @@ export default function App() {
                           }
                         });
 
-                        // Add Total Row
                         const totalRow = worksheet.addRow([
                           'TỔNG CỘNG', '', '', '', '', '', 
                           totalQtyErp, 
@@ -2606,7 +2581,6 @@ export default function App() {
                         });
                         totalRow.getCell(1).alignment = { horizontal: 'center' };
 
-                        // Footer / Signatures
                         worksheet.addRow([]);
                         worksheet.addRow([]);
                         const signHeader = worksheet.addRow([
@@ -2629,12 +2603,10 @@ export default function App() {
                         worksheet.mergeCells(signSub.number, 5, signSub.number, 12);
                         worksheet.mergeCells(signSub.number, 13, signSub.number, 17);
 
-                        // Center all signature cells
                         [signHeader, signSub].forEach(row => {
                           row.eachCell(cell => { cell.alignment = { horizontal: 'center' }; });
                         });
 
-                        // Generate and save
                         const buffer = await workbook.xlsx.writeBuffer();
                         const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
                         saveAs(blob, "PhieuGiaoNhanFabric.xlsx");
@@ -2650,7 +2622,6 @@ export default function App() {
 
                 {deliveryNoteSubTab === 'preview' && (
                   <div className="bg-white border border-[#141414] p-8 shadow-sm">
-                  {/* Header Template */}
                   <div className="flex justify-center items-start mb-8">
                     <div className="text-center flex-1">
                       <h1 className="text-xl font-bold uppercase tracking-widest">Phiếu giao nhận Fabric</h1>
@@ -2997,6 +2968,15 @@ export default function App() {
                       <FileUp size={14} />
                       Nhập Excel {locationSubTab === 'inventory' ? '(Sheet 3)' : ''}
                     </button>
+                    {selectedRows.length > 0 && (
+                      <button 
+                        onClick={handleBulkDelete}
+                        className="flex items-center gap-2 px-6 py-2 bg-red-600 text-white text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                      >
+                        <Trash2 size={14} />
+                        Xóa ({selectedRows.length})
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -3039,8 +3019,6 @@ export default function App() {
                             const rows: React.ReactNode[] = [];
                             let lastScanType: string | undefined = undefined;
                             
-                            // Sort chronologically for the log view to show headers correctly
-                            // Assuming new entries are unshifted, we reverse to show chronological order for header logic
                             const sortedEntries = [...filteredLocationEntries].reverse();
 
                             sortedEntries.forEach((entry, index) => {
@@ -3102,9 +3080,6 @@ export default function App() {
                               );
                             });
                             
-                            // Reverse back to show newest at top if that's preferred, 
-                            // but headers logic works best chronologically.
-                            // Let's keep it newest at top but with headers.
                             return rows.reverse();
                           })()
                         )}
@@ -3204,7 +3179,6 @@ export default function App() {
         </div>
       </main>
 
-      {/* Location Modal */}
       <AnimatePresence>
         {isLocationModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -3351,7 +3325,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Product Modal */}
       <AnimatePresence>
         {isProductModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -3451,7 +3424,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Transaction Modal */}
       <AnimatePresence>
         {isTransactionModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -3546,7 +3518,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Customer Modal */}
       <AnimatePresence>
         {isCustomerModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -3599,7 +3570,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Delivery Note Item Edit Modal */}
       <AnimatePresence>
         {isDeliveryNoteEditModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -3696,7 +3666,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Delivery Note Delete Confirmation Modal */}
       <AnimatePresence>
         {isDeliveryNoteDeleteConfirmOpen && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -3737,7 +3706,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {isDeleteConfirmOpen && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -3778,7 +3746,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Setup Modal */}
       {isSetupModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <motion.div 
@@ -3833,6 +3800,25 @@ export default function App() {
           </motion.div>
         </div>
       )}
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className={cn(
+              "fixed bottom-8 right-8 px-6 py-4 rounded shadow-2xl flex items-center gap-3 z-50",
+              notification.type === 'error' ? "bg-red-600 text-white" : "bg-green-600 text-white"
+            )}
+          >
+            {notification.type === 'error' ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
+            <span className="font-bold">{notification.message}</span>
+            <button onClick={() => setNotification(null)} className="ml-4 hover:opacity-70">
+              <X size={16} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

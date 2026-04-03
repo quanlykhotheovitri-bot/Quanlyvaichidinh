@@ -97,9 +97,16 @@ export const api = {
       }
     },
     async delete(id: string): Promise<void> {
+      // 1. Optimistic Cache Update
+      const currentProducts = getCache<Product[]>('products') || [];
+      setCache('products', currentProducts.filter(p => p.id !== id), 30 * 24 * 3600000);
+      
+      // 2. Database Update
       const { error } = await supabase.from('products').delete().eq('id', id);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'products');
+      if (error) {
+        console.error('Database error during product deletion:', error);
+        throw error;
+      }
     }
   },
   transactions: {
@@ -174,9 +181,26 @@ export const api = {
       }
     },
     async delete(id: string): Promise<void> {
+      const currentTransactions = getCache<Transaction[]>('transactions') || [];
+      setCache('transactions', currentTransactions.filter(t => t.id !== id), 30 * 24 * 3600000);
+      
       const { error } = await supabase.from('transactions').delete().eq('id', id);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'transactions');
+      if (error) {
+        console.error('Database error during transaction deletion:', error);
+        throw error;
+      }
+    },
+    async deleteByProductId(productId: string): Promise<void> {
+      // 1. Optimistic Cache Update
+      const currentTransactions = getCache<Transaction[]>('transactions') || [];
+      setCache('transactions', currentTransactions.filter(t => t.productId !== productId), 30 * 24 * 3600000);
+      
+      // 2. Database Update
+      const { error } = await supabase.from('transactions').delete().eq('productid', productId);
+      if (error) {
+        console.error('Database error during bulk transaction deletion:', error);
+        throw error;
+      }
     }
   },
   customers: {
@@ -212,9 +236,14 @@ export const api = {
       }
     },
     async delete(id: string): Promise<void> {
+      const currentCustomers = getCache<Customer[]>('customers') || [];
+      setCache('customers', currentCustomers.filter(c => c.id !== id), 30 * 24 * 3600000);
+      
       const { error } = await supabase.from('customers').delete().eq('id', id);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'customers');
+      if (error) {
+        console.error('Database error during customer deletion:', error);
+        throw error;
+      }
     }
   },
   deliveryNotes: {
@@ -282,9 +311,12 @@ export const api = {
       }
     },
     async deleteAll(): Promise<void> {
+      setCache('delivery_notes', [], 30 * 24 * 3600000);
       const { error } = await supabase.from('delivery_notes').delete().neq('id', '');
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'delivery_notes');
+      if (error) {
+        console.error('Database error during delivery notes deletion:', error);
+        throw error;
+      }
     }
   },
   locationEntries: {
@@ -352,14 +384,24 @@ export const api = {
       }
     },
     async delete(id: string): Promise<void> {
+      const currentEntries = getCache<LocationEntry[]>('location_entries') || [];
+      setCache('location_entries', currentEntries.filter(e => e.id !== id), 30 * 24 * 3600000);
+      
       const { error } = await supabase.from('location_entries').delete().eq('id', id);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
+      if (error) {
+        console.error('Database error during location entry deletion:', error);
+        throw error;
+      }
     },
     async deleteByQRCode(qrcode: string): Promise<void> {
+      const currentEntries = getCache<LocationEntry[]>('location_entries') || [];
+      setCache('location_entries', currentEntries.filter(e => e.qrcode !== qrcode), 30 * 24 * 3600000);
+      
       const { error } = await supabase.from('location_entries').delete().eq('qrcode', qrcode);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
+      if (error) {
+        console.error('Database error during location entries deletion by qrcode:', error);
+        throw error;
+      }
     }
   },
   savedDeliveryNotes: {
@@ -394,9 +436,14 @@ export const api = {
       }
     },
     async delete(id: string): Promise<void> {
+      const currentNotes = getCache<{id: string, date: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes') || [];
+      setCache('saved_delivery_notes', currentNotes.filter(n => n.id !== id), 30 * 24 * 3600000);
+      
       const { error } = await supabase.from('saved_delivery_notes').delete().eq('id', id);
-      if (error) throw error;
-      localStorage.removeItem(CACHE_KEY_PREFIX + 'saved_delivery_notes');
+      if (error) {
+        console.error('Database error during saved delivery note deletion:', error);
+        throw error;
+      }
     }
   },
   deliveryNoteHeader: {
