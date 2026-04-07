@@ -107,6 +107,14 @@ export const api = {
         console.error('Database error during product deletion:', error);
         throw error;
       }
+    },
+    async deleteAll(): Promise<void> {
+      setCache('products', [], 30 * 24 * 3600000);
+      const { error } = await supabase.from('products').delete().neq('id', '');
+      if (error) {
+        console.error('Database error during products bulk deletion:', error);
+        throw error;
+      }
     }
   },
   transactions: {
@@ -199,6 +207,14 @@ export const api = {
       const { error } = await supabase.from('transactions').delete().eq('productid', productId);
       if (error) {
         console.error('Database error during bulk transaction deletion:', error);
+        throw error;
+      }
+    },
+    async deleteAll(): Promise<void> {
+      setCache('transactions', [], 30 * 24 * 3600000);
+      const { error } = await supabase.from('transactions').delete().neq('id', '');
+      if (error) {
+        console.error('Database error during transactions bulk deletion:', error);
         throw error;
       }
     }
@@ -400,6 +416,14 @@ export const api = {
       const { error } = await supabase.from('location_entries').delete().eq('qrcode', qrcode);
       if (error) {
         console.error('Database error during location entries deletion by qrcode:', error);
+        throw error;
+      }
+    },
+    async deleteAll(): Promise<void> {
+      setCache('location_entries', [], 30 * 24 * 3600000);
+      const { error } = await supabase.from('location_entries').delete().neq('id', '');
+      if (error) {
+        console.error('Database error during location_entries bulk deletion:', error);
         throw error;
       }
     }

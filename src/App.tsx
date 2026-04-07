@@ -90,7 +90,7 @@ export default function App() {
   const [newLocationEntry, setNewLocationEntry] = useState<Partial<LocationEntry>>({
     qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: '', quantity: 1
   });
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk', type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote', qrcode?: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk' | 'wipe_all_data', type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote' | 'all', qrcode?: string } | null>(null);
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -1019,12 +1019,32 @@ export default function App() {
     }
   };
 
+  const handleWipeAllData = async () => {
+    try {
+      if (isSupabaseConfigured) {
+        await api.products.deleteAll();
+        await api.transactions.deleteAll();
+        await api.locationEntries.deleteAll();
+      }
+      setProducts([]);
+      setTransactions([]);
+      setLocationEntries([]);
+      setSelectedRows([]);
+      showNotification('Đã xóa toàn bộ dữ liệu Tồn kho, Nhập/Xuất & Vị trí', 'success');
+    } catch (error) {
+      console.error('Lỗi khi xóa đồng loạt:', error);
+      showNotification('Có lỗi xảy ra khi xóa toàn bộ dữ liệu', 'error');
+    }
+  };
+
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     if (deleteTarget.id === 'bulk') {
       await handleBulkDelete();
+    } else if (deleteTarget.id === 'wipe_all_data') {
+      await handleWipeAllData();
     } else {
-      await handleDelete(deleteTarget.id, deleteTarget.type);
+      await handleDelete(deleteTarget.id, deleteTarget.type as any);
     }
     setIsDeleteConfirmOpen(false);
     setDeleteTarget(null);
@@ -2102,6 +2122,17 @@ export default function App() {
                 <Save size={14} />
               )}
               {isSaving ? 'Đang lưu...' : 'Lưu tất cả'}
+            </button>
+            <button 
+              onClick={() => {
+                setDeleteTarget({ id: 'wipe_all_data', type: 'all' });
+                setIsDeleteConfirmOpen(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-red-800 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-red-900 transition-colors"
+              title="Xóa toàn bộ tồn kho, nhập kho, xuất kho, và vị trí"
+            >
+              <Trash2 size={14} />
+              Xóa tất cả
             </button>
             {selectedRows.length > 0 && (
               <button 
@@ -3957,7 +3988,7 @@ export default function App() {
               <div className="space-y-2">
                 <h3 className="font-serif italic text-2xl">Xác nhận xóa</h3>
                 <p className="text-sm opacity-70">
-                  Bạn có chắc chắn muốn xóa {deleteTarget?.id === 'bulk' ? `hàng loạt (${selectedRows.length} mục)` : 'mục này'} không? Hành động này không thể hoàn tác.
+                  Bạn có chắc chắn muốn xóa {deleteTarget?.id === 'wipe_all_data' ? 'TOÀN BỘ dữ liệu Tồn kho, Nhập kho, Xuất kho và Vị trí' : deleteTarget?.id === 'bulk' ? `hàng loạt (${selectedRows.length} mục)` : 'mục này'} không? Hành động này không thể hoàn tác.
                 </p>
               </div>
               <div className="flex gap-4 pt-2">
