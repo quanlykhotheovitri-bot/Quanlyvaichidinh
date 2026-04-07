@@ -393,85 +393,96 @@ export default function App() {
     title: string,
     headerColor: string = 'FF001F3F'
   ) => {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Sheet1');
+    try {
+      showNotification('Đang chuẩn bị file Excel...', 'success');
+      
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Sheet1');
 
-    // 1. Add Title
-    const titleRow = worksheet.addRow(['', title]);
-    titleRow.height = 30;
-    worksheet.mergeCells(1, 2, 1, columns.length + 1);
-    titleRow.getCell(2).font = { name: 'Arial', size: 16, bold: true };
-    titleRow.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
+      // 1. Add Title
+      const titleRow = worksheet.addRow(['', title]);
+      titleRow.height = 30;
+      worksheet.mergeCells(1, 2, 1, columns.length + 1);
+      titleRow.getCell(2).font = { name: 'Arial', size: 16, bold: true };
+      titleRow.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
 
-    // 2. Add Metadata (Date)
-    const dateRow = worksheet.addRow(['', `Ngày lập báo cáo: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`]);
-    worksheet.mergeCells(2, 2, 2, columns.length + 1);
-    dateRow.getCell(2).font = { name: 'Arial', size: 10, italic: true };
-    dateRow.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
+      // 2. Add Metadata (Date)
+      const dateRow = worksheet.addRow(['', `Ngày lập báo cáo: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`]);
+      worksheet.mergeCells(2, 2, 2, columns.length + 1);
+      dateRow.getCell(2).font = { name: 'Arial', size: 10, italic: true };
+      dateRow.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
 
-    worksheet.addRow([]); // Empty row
+      worksheet.addRow([]); // Empty row
 
-    // 3. Setup Columns
-    worksheet.columns = [
-      { width: 5 }, // Column A for spacing/Index
-      ...columns.map(col => ({ header: col.header, key: col.key, width: col.width }))
-    ];
+      // 3. Setup Columns
+      worksheet.columns = [
+        { width: 5 }, // Column A for spacing/Index
+        ...columns.map(col => ({ header: col.header, key: col.key, width: col.width }))
+      ];
 
-    // 4. Add Header Row
-    const headerRow = worksheet.getRow(4);
-    headerRow.values = ['', ...columns.map(c => c.header)];
-    headerRow.height = 25;
-    headerRow.eachCell((cell, colNumber) => {
-      if (colNumber > 1) {
-        cell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: headerColor }
-        };
-        cell.font = { color: { argb: 'FFFFFFFF' }, bold: true, size: 10 };
-        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-        cell.border = {
-          top: { style: 'thin' },
-          left: { style: 'thin' },
-          bottom: { style: 'thin' },
-          right: { style: 'thin' }
-        };
-      }
-    });
-
-    // 5. Add Data Rows
-    data.forEach((item, index) => {
-      const rowData = { ...item, index: index + 1 };
-      const row = worksheet.addRow(['', ...columns.map(col => item[col.key])]);
-      row.eachCell((cell, colNumber) => {
+      // 4. Add Header Row
+      const headerRow = worksheet.getRow(4);
+      headerRow.values = ['', ...columns.map(c => c.header)];
+      headerRow.height = 25;
+      headerRow.eachCell((cell, colNumber) => {
         if (colNumber > 1) {
-          const colDef = columns[colNumber - 2];
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: headerColor }
+          };
+          cell.font = { color: { argb: 'FFFFFFFF' }, bold: true, size: 10 };
+          cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
           cell.border = {
             top: { style: 'thin' },
             left: { style: 'thin' },
             bottom: { style: 'thin' },
             right: { style: 'thin' }
           };
-          cell.font = { name: 'Arial', size: 10 };
-          cell.alignment = colDef.alignment || { vertical: 'middle', horizontal: 'left' };
-          
-          if (colDef.isHighlight) {
-            cell.fill = {
-              type: 'pattern',
-              pattern: 'solid',
-              fgColor: { argb: 'FFFACC15' } // Yellow-400
-            };
-          }
         }
       });
-    });
 
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    saveAs(blob, `${fileName}_${format(new Date(), 'ddMMyyyy_HHmm')}.xlsx`);
+      // 5. Add Data Rows
+      data.forEach((item, index) => {
+        const row = worksheet.addRow(['', ...columns.map(col => item[col.key])]);
+        row.eachCell((cell, colNumber) => {
+          if (colNumber > 1) {
+            const colDef = columns[colNumber - 2];
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' }
+            };
+            cell.font = { name: 'Arial', size: 10 };
+            cell.alignment = colDef.alignment || { vertical: 'middle', horizontal: 'left' };
+            
+            if (colDef.isHighlight) {
+              cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FFFACC15' } // Yellow-400
+              };
+            }
+          }
+        });
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      saveAs(blob, `${fileName}_${format(new Date(), 'ddMMyyyy_HHmm')}.xlsx`);
+      showNotification('Xuất file Excel thành công!', 'success');
+    } catch (error) {
+      console.error('Lỗi khi xuất file Excel:', error);
+      showNotification('Lỗi khi tạo file Excel. Vui lòng thử lại.', 'error');
+    }
   };
 
   const handleExportInventory = async () => {
+    if (filteredInventory.length === 0) {
+      showNotification('Không có dữ liệu tồn kho để xuất!', 'error');
+      return;
+    }
     const columns = [
       { header: 'Mã Hàng', key: 'sku', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
       { header: 'Tên hàng', key: 'name', width: 35 },
@@ -492,6 +503,12 @@ export default function App() {
     const fileName = isInbound ? 'DanhSachNhapKho' : 'DanhSachXuatKho';
     const headerColor = isInbound ? 'FF1a5f7a' : 'FFC2410C';
 
+    const rawData = filteredTransactions.filter(t => t.type === activeTab);
+    if (rawData.length === 0) {
+      showNotification(`Không có dữ liệu ${title.toLowerCase()} để xuất!`, 'error');
+      return;
+    }
+
     const columns = [
       { header: 'Mã Hàng', key: 'sku', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
       { header: 'Tên hàng', key: 'name', width: 35 },
@@ -503,21 +520,23 @@ export default function App() {
       { header: 'Mã chỉ định', key: 'designationCode', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
     ];
 
-    const data = filteredTransactions
-      .filter(t => t.type === activeTab)
-      .map(t => {
-        const product = products.find(p => p.id === t.productId);
-        return {
-          ...t,
-          sku: product?.sku || 'N/A',
-          name: product?.name || 'N/A'
-        };
-      });
+    const data = rawData.map(t => {
+      const product = products.find(p => p.id === t.productId);
+      return {
+        ...t,
+        sku: product?.sku || 'N/A',
+        name: product?.name || 'N/A'
+      };
+    });
 
     await createExcelFile(data, columns, fileName, title, headerColor);
   };
 
   const handleExportCustomers = async () => {
+    if (filteredCustomers.length === 0) {
+      showNotification('Không có dữ liệu khách hàng để xuất!', 'error');
+      return;
+    }
     const columns = [
       { header: 'Mã KH', key: 'code', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
       { header: 'Tên KH', key: 'name', width: 35 }
@@ -527,6 +546,13 @@ export default function App() {
 
   const handleExportLocations = async () => {
     const isInv = locationSubTab === 'inventory';
+    const data = isInv ? filteredLocationInventoryEntries : filteredLocationEntries;
+    
+    if (data.length === 0) {
+      showNotification(`Không có dữ liệu ${isInv ? 'tồn vị trí' : 'lịch sử vị trí'} để xuất!`, 'error');
+      return;
+    }
+
     const title = isInv ? 'BÁO CÁO TỒN KHO THEO VỊ TRÍ' : 'LỊCH SỬ NHẬP XUẤT VỊ TRÍ';
     const columns = [
       { header: 'QRCODE', key: 'qrcode', width: 25, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
@@ -537,7 +563,6 @@ export default function App() {
       { header: 'Vị trí', key: 'location', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
       { header: 'SL', key: 'quantity', width: 10, alignment: { horizontal: 'right' as ExcelJS.Alignment['horizontal'] }, isHighlight: true },
     ];
-    const data = isInv ? filteredLocationInventoryEntries : filteredLocationEntries;
     await createExcelFile(data, columns, isInv ? 'TonViTri' : 'LichSuViTri', title);
   };
 
@@ -1684,13 +1709,7 @@ export default function App() {
       inventoryBySku.get(item.sku)!.push(item);
     });
 
-    const priorityOrder = [
-      "CHI DINH THEO SO",
-      "CHI DINH theo KH",
-      "CHI DINH THEO NCC",
-      "NORMAL",
-      "VAI KH CUNG CAP"
-    ];
+    // The priorityOrder array was removed entirely per user request, replaced by strict RPRO -> No -> Empty matching logic.
 
     const extractDateFromLot = (lot: string): number => {
       const slashMatch = lot.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
@@ -1752,7 +1771,9 @@ export default function App() {
       tempStock: item.currentStock
     }));
 
-    const mappedData: DeliveryNoteItem[] = data.map((row, index) => {
+    const mappedData: DeliveryNoteItem[] = [];
+
+    data.forEach((row, index) => {
       const itemNo = String(row['Item No.'] || row['item'] || '').trim();
       const product = productMap.get(itemNo);
       const customerName = String(row['Sell-to Customer Name'] || row['Customer code'] || '').trim();
@@ -1764,73 +1785,98 @@ export default function App() {
 
       const availableStock = workingInventory.filter(item => item.sku === itemNo && item.tempStock > 0);
       
-      let bestBatch: typeof workingInventory[0] | undefined;
-      
-      for (const priorityType of priorityOrder) {
-        const matchingBatches = availableStock.filter(item => 
-          (item.loaiChiDinh || '').trim().toUpperCase() === priorityType.toUpperCase()
-        );
-        
-        if (matchingBatches.length > 0) {
-          matchingBatches.sort((a, b) => extractDateFromLot(a.lotNo || '') - extractDateFromLot(b.lotNo || ''));
+      const rproValue = String(row['RPRO'] || '').trim();
+      const noValue = String(row['No.'] || '').trim();
 
-          if (priorityType === "CHI DINH THEO SO") {
-            const orderMatch = matchingBatches.find(item => 
-              (item.designationCode || '').trim() === ovnSaleOrder || 
-              (item.designationCode || '').trim() === ovnProductionOrder
-            );
-            if (orderMatch) {
-              bestBatch = orderMatch;
-              break;
-            }
-          } else if (priorityType === "CHI DINH theo KH") {
-            const customerMatch = matchingBatches.find(item => {
-              const designationCode = (item.designationCode || '').trim();
-              const customerCode = (customer?.code || '').trim();
-              if (!customerCode) return false;
-              
-              const codes = designationCode.split('/').map(c => c.trim());
-              return codes.includes(customerCode);
-            });
-            if (customerMatch) {
-              bestBatch = customerMatch;
-              break;
-            }
-          } else {
-            bestBatch = matchingBatches[0];
-            break;
+      let rproMatches: typeof workingInventory = [];
+      let noMatches: typeof workingInventory = [];
+      let emptyMatches: typeof workingInventory = [];
+
+      availableStock.forEach(item => {
+        const designationCode = (item.designationCode || '').trim();
+        
+        if (rproValue && designationCode === rproValue) {
+          rproMatches.push(item);
+        } else if (noValue && designationCode.includes(noValue) && designationCode !== '') {
+          noMatches.push(item);
+        } else if (designationCode === '') {
+          emptyMatches.push(item);
+        }
+      });
+
+      rproMatches.sort((a, b) => extractDateFromLot(a.lotNo || '') - extractDateFromLot(b.lotNo || ''));
+      noMatches.sort((a, b) => extractDateFromLot(a.lotNo || '') - extractDateFromLot(b.lotNo || ''));
+      emptyMatches.sort((a, b) => extractDateFromLot(a.lotNo || '') - extractDateFromLot(b.lotNo || ''));
+
+      let validBatches = [...rproMatches, ...noMatches, ...emptyMatches];
+
+      // Xóa trùng lặp nếu có
+      validBatches = validBatches.filter((batch, i, self) => i === self.findIndex(b => b.id === batch.id));
+
+      if (validBatches.length === 0 || validBatches.reduce((sum, b) => sum + b.tempStock, 0) === 0) {
+        mappedData.push({
+          id: generateId(),
+          no: 0,
+          ovnSaleOrder: ovnSaleOrder,
+          ovnProductionOrder: ovnProductionOrder,
+          item: itemNo,
+          materialName: String(row['OVN Full Name'] || product?.name || ''),
+          unit: 'YDS',
+          qtyErp: qtyNeeded,
+          actualQty: 0,
+          lotNo: '',
+          remark: '',
+          brand: String(row['Brand Code'] || ''),
+          customerCode: customerName,
+          finalDestination: String(row['Final Destination'] || ''),
+          noCode: customer?.code || '',
+          location: '',
+          stock: 'Không có tồn'
+        });
+      } else {
+        let remainingToFulfill = qtyNeeded;
+        
+        for (let i = 0; i < validBatches.length; i++) {
+          const batch = validBatches[i];
+          if (remainingToFulfill <= 0) break;
+          if (batch.tempStock <= 0) continue;
+          
+          let allocation = Math.min(batch.tempStock, remainingToFulfill);
+          
+          // Nếu đây là batch cuối cùng mà vẫn chưa đủ qtyNeeded thì lấy hết số còn lại
+          if (i === validBatches.length - 1 && remainingToFulfill > batch.tempStock) {
+            allocation = remainingToFulfill;
           }
+          
+          batch.tempStock -= allocation;
+          remainingToFulfill -= allocation;
+
+          const normalizedLotDate = normalizeDateForMatching(batch.lotNo || '');
+          const locationEntry = locationInventoryEntries.find(e => 
+            e.sku === itemNo && e.date === normalizedLotDate
+          );
+
+          mappedData.push({
+            id: generateId(),
+            no: 0,
+            ovnSaleOrder: ovnSaleOrder,
+            ovnProductionOrder: ovnProductionOrder,
+            item: itemNo,
+            materialName: String(row['OVN Full Name'] || product?.name || ''),
+            unit: 'YDS',
+            qtyErp: allocation,
+            actualQty: allocation,
+            lotNo: batch.lotNo || '',
+            remark: batch.designationCode || '',
+            brand: String(row['Brand Code'] || ''),
+            customerCode: customerName,
+            finalDestination: String(row['Final Destination'] || ''),
+            noCode: customer?.code || '',
+            location: locationEntry ? locationEntry.location : 'Chưa có vị trí',
+            stock: `${batch.currentStock} (${batch.loaiChiDinh})`
+          });
         }
       }
-
-      if (bestBatch) {
-        bestBatch.tempStock -= qtyNeeded;
-      }
-
-      const normalizedLotDate = normalizeDateForMatching(bestBatch?.lotNo || '');
-      const locationEntry = locationInventoryEntries.find(e => 
-        e.sku === itemNo && e.date === normalizedLotDate
-      );
-
-      return {
-        id: generateId(),
-        no: 0,
-        ovnSaleOrder: ovnSaleOrder,
-        ovnProductionOrder: ovnProductionOrder,
-        item: itemNo,
-        materialName: String(row['OVN Full Name'] || product?.name || ''),
-        unit: 'YDS',
-        qtyErp: qtyNeeded,
-        actualQty: bestBatch ? qtyNeeded : 0,
-        lotNo: bestBatch?.lotNo || '',
-        remark: bestBatch?.designationCode || '',
-        brand: String(row['Brand Code'] || ''),
-        customerCode: customerName,
-        finalDestination: String(row['Final Destination'] || ''),
-        noCode: customer?.code || '',
-        location: locationEntry ? locationEntry.location : (bestBatch ? 'Chưa có vị trí' : ''),
-        stock: bestBatch ? `${bestBatch.currentStock} (${bestBatch.loaiChiDinh})` : 'Không có tồn'
-      };
     });
 
     const sortedData = mappedData.sort((a, b) => a.item.localeCompare(b.item));
@@ -2234,9 +2280,9 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="border border-[#141414] overflow-x-auto">
+                <div className="border border-[#141414] overflow-auto max-h-[70vh]">
                   <table className="w-full border-collapse min-w-[1000px]">
-                    <thead>
+                    <thead className="sticky top-0 z-10 shadow-sm">
                       <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
                         <th className="border border-[#141414] p-3 w-10">
                           <button onClick={() => {
@@ -2294,7 +2340,6 @@ export default function App() {
                                     onClick={() => {
                                       setEditingId(t.id);
                                       setNewTransaction(t);
-                                      setIsTransactionModalOpen(true);
                                     }}
                                     className="p-1 hover:bg-gray-200 rounded transition-colors"
                                   >
@@ -2317,7 +2362,6 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-              </div>
               </motion.div>
             )}
             {activeTab === 'inventory' && (
@@ -2355,9 +2399,9 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="border border-[#141414] overflow-x-auto">
+                <div className="border border-[#141414] overflow-auto max-h-[70vh]">
                   <table className="w-full border-collapse min-w-[1200px]">
-                    <thead>
+                    <thead className="sticky top-0 z-10 shadow-sm">
                       <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
                         <th className="border border-[#141414] p-3 w-10">
                           <button onClick={() => {
@@ -2433,7 +2477,6 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-              </div>
               </motion.div>
             )}
             {activeTab === 'customers' && (
@@ -2479,9 +2522,9 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="border border-[#141414] overflow-x-auto">
+                <div className="border border-[#141414] overflow-auto max-h-[70vh]">
                   <table className="w-full border-collapse">
-                    <thead>
+                    <thead className="sticky top-0 z-10 shadow-sm">
                       <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
                         <th className="border border-[#141414] p-3 w-10">
                           <button onClick={() => {
@@ -2543,7 +2586,6 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-              </div>
               </motion.div>
             )}
 
@@ -2863,9 +2905,9 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="overflow-x-auto">
+                  <div className="overflow-auto max-h-[65vh]">
                     <table className="w-full border-collapse min-w-[1800px]">
-                      <thead>
+                      <thead className="sticky top-0 z-10 shadow-sm">
                         <tr className="bg-[#001F3F] text-white text-[10px] uppercase tracking-wider">
                           <th className="border border-[#141414] p-2 text-center w-12">No</th>
                           <th className="border border-[#141414] p-2 text-left">OVN Sale Order</th>
@@ -3178,9 +3220,9 @@ export default function App() {
 
                 {(locationSubTab === 'input' || locationSubTab === 'output') && (
                   <div className="space-y-4">
-                    <div className="border border-[#141414] overflow-x-auto">
+                    <div className="border border-[#141414] overflow-auto max-h-[70vh]">
                     <table className="w-full border-collapse">
-                      <thead>
+                      <thead className="sticky top-0 z-10 shadow-sm">
                         <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
                           <th className="border border-[#141414] p-3 w-10">
                             <button onClick={() => {
@@ -3286,9 +3328,9 @@ export default function App() {
                 )}
 
                 {locationSubTab === 'inventory' && (
-                  <div className="border border-[#141414] overflow-x-auto">
+                  <div className="border border-[#141414] overflow-auto max-h-[70vh]">
                     <table className="w-full border-collapse">
-                      <thead>
+                      <thead className="sticky top-0 z-10 shadow-sm">
                         <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
                           <th className="border border-[#141414] p-3 w-10">
                             <button onClick={() => {
@@ -3369,12 +3411,9 @@ export default function App() {
                     </table>
                   </div>
                 )}
-              </div>
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
-      </main>
 
       <AnimatePresence>
         {isLocationModalOpen && (
@@ -4016,7 +4055,10 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+        </div>
+      </main>
     </div>
+
   );
 }
 
