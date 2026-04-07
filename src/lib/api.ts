@@ -23,6 +23,17 @@ const setCache = <T>(key: string, value: T, ttl: number = 3600000): void => {
   localStorage.setItem(CACHE_KEY_PREFIX + key, JSON.stringify({ value, expiry }));
 };
 
+const updateCacheSingle = <T extends {id: string}>(key: string, item: T) => {
+  const current = getCache<T[]>(key) || [];
+  const index = current.findIndex(p => p.id === item.id);
+  if (index >= 0) {
+    current[index] = item;
+  } else {
+    current.push(item);
+  }
+  setCache(key, current, 30 * 24 * 3600000);
+};
+
 export const api = {
   products: {
     async getAll(): Promise<Product[]> {
@@ -48,6 +59,7 @@ export const api = {
       }
     },
     async upsert(product: Product): Promise<void> {
+      updateCacheSingle('products', product);
       const payload = {
         ...product,
         minstock: product.minStock,
@@ -141,6 +153,7 @@ export const api = {
       }
     },
     async upsert(transaction: Transaction): Promise<void> {
+      updateCacheSingle('transactions', transaction);
       const payload = {
         ...transaction,
         productid: transaction.productId,
@@ -234,6 +247,7 @@ export const api = {
       }
     },
     async upsert(customer: Customer): Promise<void> {
+      updateCacheSingle('customers', customer);
       try {
         const { error } = await supabase.from('customers').upsert(customer);
         if (error) throw error;
@@ -350,6 +364,7 @@ export const api = {
       }
     },
     async upsert(entry: LocationEntry): Promise<void> {
+      updateCacheSingle('location_entries', entry);
       try {
         const { error } = await supabase.from('location_entries').upsert(entry);
         if (error) throw error;
@@ -443,6 +458,7 @@ export const api = {
       }
     },
     async upsert(note: {id: string, date: string, items: DeliveryNoteItem[]}): Promise<void> {
+      updateCacheSingle('saved_delivery_notes', note);
       try {
         const { error } = await supabase.from('saved_delivery_notes').upsert(note);
         if (error) throw error;

@@ -1228,13 +1228,16 @@ export default function App() {
         const updatedProducts = [...prev];
         const skuToProductIndex = new Map(updatedProducts.map((p, i) => [p.sku, i]));
 
+        let currentProductSku = '';
+        let currentProductName = '';
+
         data.forEach((row) => {
           const normalizedRow: any = {};
           Object.keys(row).forEach(key => {
             normalizedRow[normalizeKey(key)] = row[key];
           });
 
-          const sku = String(
+          let sku = String(
             normalizedRow['sku'] || 
             normalizedRow['mã hàng'] || 
             normalizedRow['mã hàng hóa'] ||
@@ -1249,9 +1252,17 @@ export default function App() {
             row.sku || row.SKU || row['Mã Hàng'] || ''
           ).trim();
 
-          if (!sku) return;
+          if (!sku) {
+            if (currentProductSku) {
+              sku = currentProductSku;
+            } else {
+              return;
+            }
+          } else {
+            currentProductSku = sku;
+          }
 
-          const name = String(
+          let name = String(
             normalizedRow['name'] || 
             normalizedRow['tên hàng'] || 
             normalizedRow['tên hàng hóa'] ||
@@ -1264,8 +1275,15 @@ export default function App() {
             normalizedRow['description'] ||
             normalizedRow['mô tả'] ||
             normalizedRow['tên'] ||
-            row.name || row.Name || row['Tên hàng'] || 'Sản phẩm mới'
+            row.name || row.Name || row['Tên hàng'] || ''
           ).trim();
+
+          if (!name && currentProductName) {
+            name = currentProductName;
+          } else if (name) {
+            currentProductName = name;
+          }
+          if (!name) name = 'Sản phẩm mới';
 
           const existingIndex = skuToProductIndex.get(sku);
           const productData: Product = {
@@ -1298,13 +1316,16 @@ export default function App() {
         const skuToProductIndex = new Map(updatedProducts.map((p, i) => [p.sku, i]));
         const skuToNewProductIndex = new Map<string, number>();
 
+        let currentProductSku = '';
+        let currentProductName = '';
+
         data.forEach((row) => {
           const normalizedRow: any = {};
           Object.keys(row).forEach(key => {
             normalizedRow[normalizeKey(key)] = row[key];
           });
 
-          const sku = String(
+          let sku = String(
             normalizedRow['sku'] || 
             normalizedRow['mã hàng'] || 
             normalizedRow['mã hàng hóa'] ||
@@ -1319,9 +1340,17 @@ export default function App() {
             row.sku || row.SKU || row['Mã Hàng'] || ''
           ).trim();
 
-          if (!sku) return;
+          if (!sku) {
+            if (currentProductSku) {
+              sku = currentProductSku;
+            } else {
+              return;
+            }
+          } else {
+            currentProductSku = sku;
+          }
 
-          const name = String(
+          let name = String(
             normalizedRow['name'] || 
             normalizedRow['tên hàng'] || 
             normalizedRow['tên hàng hóa'] ||
@@ -1336,6 +1365,12 @@ export default function App() {
             normalizedRow['tên'] ||
             row.name || row.Name || row['Tên hàng'] || ''
           ).trim();
+
+          if (!name && currentProductName) {
+            name = currentProductName;
+          } else if (name) {
+            currentProductName = name;
+          }
 
           const designationCode = String(
             normalizedRow['designationcode'] || 
@@ -1405,13 +1440,15 @@ export default function App() {
         const finalProducts = [...updatedProducts, ...newProductsToAdd];
         const finalProductsMap = new Map(finalProducts.map(p => [p.sku, p]));
 
+        let currentSkuForTransaction = '';
+
         const newTransactions: Transaction[] = data.map((row) => {
           const normalizedRow: any = {};
           Object.keys(row).forEach(key => {
             normalizedRow[normalizeKey(key)] = row[key];
           });
 
-          const sku = String(
+          let sku = String(
             normalizedRow['sku'] || 
             normalizedRow['mã hàng'] || 
             normalizedRow['mã hàng hóa'] ||
@@ -1426,7 +1463,15 @@ export default function App() {
             row.sku || row.SKU || row['Mã Hàng'] || ''
           ).trim();
 
-          if (!sku) return null;
+          if (!sku) {
+            if (currentSkuForTransaction) {
+              sku = currentSkuForTransaction;
+            } else {
+              return null;
+            }
+          } else {
+            currentSkuForTransaction = sku;
+          }
 
           const product = finalProductsMap.get(sku);
           if (!product) return null;
