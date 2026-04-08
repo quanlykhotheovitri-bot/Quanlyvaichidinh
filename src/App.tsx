@@ -1425,8 +1425,8 @@ export default function App() {
                         (normalizedRow['lotno.'] !== undefined ? String(normalizedRow['lotno.']).trim() : undefined);
           const rowGhiChu = normalizedRow['ghichu'] !== undefined ? String(normalizedRow['ghichu']).trim() : 
                            (normalizedRow['ghichú'] !== undefined ? String(normalizedRow['ghichú']).trim() : undefined);
-          const rowDesignation = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).trim() : 
-                                (normalizedRow['mãchỉđịnh'] !== undefined ? String(normalizedRow['mãchỉđịnh']).trim() : undefined);
+          const rowDesignation = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).replace(/\s+/g, '') : 
+                                (normalizedRow['mãchỉđịnh'] !== undefined ? String(normalizedRow['mãchỉđịnh']).replace(/\s+/g, '') : undefined);
           const rowLoai = normalizedRow['loaichidinh'] !== undefined ? String(normalizedRow['loaichidinh']).trim() : 
                          (normalizedRow['loạichỉđịnh'] !== undefined ? String(normalizedRow['loạichỉđịnh']).trim() : undefined);
 
@@ -1436,8 +1436,8 @@ export default function App() {
             sku: sku,
             name: name === '' ? 'Sản phẩm mới' : name,
             category: normalizedRow['category'] || normalizedRow['loại'] || row.category || row.Category || 'Chưa phân loại',
-            unit: normalizedRow['unit'] || normalizedRow['đơn vị'] || row.unit || row.Unit || 'Cái',
-            minStock: Number(normalizedRow['minstock'] || normalizedRow['tồn tối thiểu'] || row.minStock || row.MinStock || 0),
+            unit: normalizedRow['unit'] || normalizedRow['đơnvị'] || row.unit || row.Unit || 'Cái',
+            minStock: Number(normalizedRow['minstock'] || normalizedRow['tồntốithiểu'] || row.minStock || row.MinStock || 0),
             lotNo: rowLot ?? (existingIndex !== undefined ? updatedProducts[existingIndex].lotNo : ''),
             ghiChu: rowGhiChu ?? (existingIndex !== undefined ? updatedProducts[existingIndex].ghiChu : ''),
             designationCode: rowDesignation ?? (existingIndex !== undefined ? updatedProducts[existingIndex].designationCode : ''),
@@ -1566,7 +1566,7 @@ export default function App() {
               sku: sku,
               name: name || 'Sản phẩm mới',
               category: normalizedRow['category'] || normalizedRow['loại'] || 'Tự động tạo',
-              unit: normalizedRow['unit'] || normalizedRow['đơn vị'] || 'Cái',
+              unit: normalizedRow['unit'] || normalizedRow['đơnvị'] || 'Cái',
               minStock: 0,
               lotNo: lotNo || '',
               ghiChu: ghiChu || '',
@@ -1589,14 +1589,14 @@ export default function App() {
 
           let sku = String(
             normalizedRow['sku'] || 
-            normalizedRow['mã hàng'] || 
-            normalizedRow['mã hàng hóa'] ||
-            normalizedRow['mã hh'] ||
-            normalizedRow['mã sp'] || 
-            normalizedRow['mã sản phẩm'] || 
-            normalizedRow['mã vật tư'] ||
-            normalizedRow['item no'] ||
-            normalizedRow['item code'] ||
+            normalizedRow['mãhàng'] || 
+            normalizedRow['mãhànghóa'] ||
+            normalizedRow['mãhh'] ||
+            normalizedRow['mãsp'] || 
+            normalizedRow['mãsảnphẩm'] || 
+            normalizedRow['mãvậttư'] ||
+            normalizedRow['itemno'] ||
+            normalizedRow['itemcode'] ||
             normalizedRow['mã'] ||
             normalizedRow['item'] ||
             row.sku || row.SKU || row['Mã Hàng'] || ''
@@ -1615,7 +1615,7 @@ export default function App() {
           const product = finalProductsMap.get(sku);
           if (!product) return null;
 
-          const rawDate = normalizedRow['date'] || normalizedRow['ngày'] || normalizedRow['ngày nhập'] || normalizedRow['ngày xuất'] || row.date || row.Date || row['Ngày nhập'] || row['Ngày xuất'];
+          const rawDate = normalizedRow['date'] || normalizedRow['ngày'] || normalizedRow['ngàynhập'] || normalizedRow['ngàyxuất'] || row.date || row.Date || row['Ngày nhập'] || row['Ngày xuất'];
           let formattedDate = format(new Date(), 'dd/MM/yyyy');
           
           if (rawDate) {
@@ -1628,21 +1628,21 @@ export default function App() {
           }
 
           const rowLoai = normalizedRow['loaichidinh'] !== undefined ? String(normalizedRow['loaichidinh']).trim() : 
-                         (normalizedRow['loại chỉ định'] !== undefined ? String(normalizedRow['loại chỉ định']).trim() : undefined);
+                         (normalizedRow['loạichỉđịnh'] !== undefined ? String(normalizedRow['loạichỉđịnh']).trim() : undefined);
           const rowLot = normalizedRow['lotno'] !== undefined ? String(normalizedRow['lotno']).trim() : 
-                        (normalizedRow['lot no'] !== undefined ? String(normalizedRow['lot no']).trim() : undefined);
+                        (normalizedRow['lotno.'] !== undefined ? String(normalizedRow['lotno.']).trim() : undefined);
           const rowGhiChu = normalizedRow['ghichu'] !== undefined ? String(normalizedRow['ghichu']).trim() : 
-                           (normalizedRow['ghi chú'] !== undefined ? String(normalizedRow['ghi chú']).trim() : undefined);
-          const rowDesignation = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).trim() : 
-                                (normalizedRow['mã chỉ định'] !== undefined ? String(normalizedRow['mã chỉ định']).trim() : undefined);
+                           (normalizedRow['ghichú'] !== undefined ? String(normalizedRow['ghichú']).trim() : undefined);
+          const rowDesignation = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).replace(/\s+/g, '') : 
+                                (normalizedRow['mãchỉđịnh'] !== undefined ? String(normalizedRow['mãchỉđịnh']).replace(/\s+/g, '') : undefined);
 
           return {
             id: generateId(),
             productId: product.id,
             type: activeTab as 'inbound' | 'outbound',
-            quantity: Number(normalizedRow['quantity'] || normalizedRow['số lượng'] || normalizedRow['số lượng nhập'] || normalizedRow['số lượng xuất'] || row.quantity || row.Quantity || row['Số lượng nhập'] || row['Số lượng xuất'] || 0),
+            quantity: Number(normalizedRow['quantity'] || normalizedRow['sốlượng'] || normalizedRow['sốlượngnhập'] || normalizedRow['sốlượngxuất'] || row.quantity || row.Quantity || row['Số lượng nhập'] || row['Số lượng xuất'] || 0),
             date: formattedDate,
-            partner: normalizedRow['partner'] || normalizedRow['đối tác'] || normalizedRow['khách hàng'] || normalizedRow['nhà cung cấp'] || row.partner || row.Partner || 'N/A',
+            partner: normalizedRow['partner'] || normalizedRow['đốitác'] || normalizedRow['kháchhàng'] || normalizedRow['nhàcungcấp'] || row.partner || row.Partner || 'N/A',
             loaiChiDinh: rowLoai ?? '',
             lotNo: rowLot ?? product?.lotNo ?? '',
             ghiChu: rowGhiChu ?? product?.ghiChu ?? '',
@@ -2078,6 +2078,12 @@ export default function App() {
       const targetSo = ovnSaleOrder.replace(/\s+/g, '').toLowerCase();
       const targetNo = noValue.replace(/\s+/g, '').toLowerCase();
 
+      const rowLoaiChiDinh = String(
+        normalizedRow['loaichidinh'] || 
+        normalizedRow['loạichỉđịnh'] || 
+        row['Loại chỉ định'] || ''
+      ).trim().toUpperCase();
+
       // Priority 1: item|OVN Production Order (or Sale Order)
       let rproMatches: InventoryItem[] = [];
       if (targetRpro) {
@@ -2103,7 +2109,21 @@ export default function App() {
       noMatches.sort((a, b) => extractDateFromLot(a.lotNo || '') - extractDateFromLot(b.lotNo || ''));
       emptyMatches.sort((a, b) => extractDateFromLot(a.lotNo || '') - extractDateFromLot(b.lotNo || ''));
 
-      let validBatches = [...rproMatches, ...noMatches, ...emptyMatches];
+      let validBatches: InventoryItem[] = [];
+      
+      if (rowLoaiChiDinh.includes('KH') || rowLoaiChiDinh.includes('SO')) {
+        // For KH or SO types, strictly use RPRO/SO matches
+        validBatches = [...rproMatches];
+      } else if (rowLoaiChiDinh.includes('NCC')) {
+        // For NCC type, strictly use No matches
+        validBatches = [...noMatches];
+      } else if (rowLoaiChiDinh.includes('NORMAL') || rowLoaiChiDinh.includes('VAI')) {
+        // For Normal type, strictly use empty matches
+        validBatches = [...emptyMatches];
+      } else {
+        // If type is unspecified, use the priority fallback logic
+        validBatches = [...rproMatches, ...noMatches, ...emptyMatches];
+      }
 
       // Xóa trùng lặp nếu có
       validBatches = validBatches.filter((batch, i, self) => i === self.findIndex(b => b.id === batch.id));
@@ -2126,7 +2146,8 @@ export default function App() {
           finalDestination: String(row['Final Destination'] || ''),
           noCode: noValue || customer?.code || '',
           location: '',
-          stock: 'Không có tồn'
+          stock: 'Không có tồn',
+          loaiChiDinh: rowLoaiChiDinh
         });
       } else {
         let remainingToFulfill = qtyNeeded;
@@ -2168,7 +2189,8 @@ export default function App() {
             finalDestination: String(row['Final Destination'] || ''),
             noCode: noValue || customer?.code || '',
             location: locationEntry ? locationEntry.location : 'Chưa có vị trí',
-            stock: `${batch.currentStock} (${batch.loaiChiDinh})`
+            stock: `${batch.currentStock} (${batch.loaiChiDinh})`,
+            loaiChiDinh: rowLoaiChiDinh
           });
         }
       }
@@ -2634,12 +2656,12 @@ export default function App() {
                               </td>
                               <td className="border border-[#141414] p-3 font-mono">{product?.sku}</td>
                               <td className="border border-[#141414] p-3 font-bold">{product?.name}</td>
-                              <td className="border border-[#141414] p-3 italic">{t.lotNo || product?.lotNo}</td>
+                              <td className="border border-[#141414] p-3 italic">{t.lotNo ?? product?.lotNo ?? ''}</td>
                               <td className="border border-[#141414] p-3 text-center font-bold">{t.quantity}</td>
                               <td className="border border-[#141414] p-3">{t.date}</td>
                               <td className="border border-[#141414] p-3 opacity-60">{t.loaiChiDinh}</td>
-                              <td className="border border-[#141414] p-3">{t.ghiChu || product?.ghiChu}</td>
-                              <td className="border border-[#141414] p-3 font-mono">{t.designationCode || product?.designationCode}</td>
+                              <td className="border border-[#141414] p-3">{t.ghiChu ?? product?.ghiChu ?? ''}</td>
+                              <td className="border border-[#141414] p-3 font-mono">{t.designationCode ?? product?.designationCode ?? ''}</td>
                               <td className="border border-[#141414] p-3 text-center">
                                 <div className="flex items-center justify-center gap-2">
                                   <button 
@@ -3010,7 +3032,7 @@ export default function App() {
                         const headerRow = worksheet.addRow([
                           'No', 'OVN Sale Order', 'OVN Production Order', 'item', 'Material Name', 
                           'Unit', 'Qty ERP', 'Thực tế', 'Lot No', 'Số lượng thực phát', 
-                          'remark', 'Brand', 'Customer code', 'Final Destination', 'No.', 'Vị trí', 'STOCK'
+                          'remark', 'Loại chỉ định', 'Brand', 'Customer code', 'Final Destination', 'No.', 'Vị trí', 'STOCK'
                         ]);
 
                         headerRow.eachCell((cell) => {
@@ -3054,6 +3076,7 @@ export default function App() {
                             item.lotNo,
                             item.actualIssuedQty,
                             item.remark,
+                            item.loaiChiDinh || '',
                             item.brand,
                             item.customerCode,
                             item.finalDestination,
@@ -3226,6 +3249,7 @@ export default function App() {
                           <th className="border border-[#141414] p-2 text-left">Lot No</th>
                           <th className="border border-[#141414] p-2 text-right">Số lượng thực phát</th>
                           <th className="border border-[#141414] p-2 text-left">remark</th>
+                          <th className="border border-[#141414] p-2 text-left">Loại chỉ định</th>
                           <th className="border border-[#141414] p-2 text-left">Brand</th>
                           <th className="border border-[#141414] p-2 text-left">Customer code</th>
                           <th className="border border-[#141414] p-2 text-left">Final Destination</th>
@@ -3317,6 +3341,7 @@ export default function App() {
                                     </div>
                                   )}
                                 </td>
+                                <td className="border border-[#141414] p-2">{item.loaiChiDinh}</td>
                                 <td className="border border-[#141414] p-2">{item.brand}</td>
                                 <td className="border border-[#141414] p-2">{item.customerCode}</td>
                                 <td className="border border-[#141414] p-2">{item.finalDestination}</td>
@@ -3963,7 +3988,7 @@ export default function App() {
                     <input 
                       className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
                       value={newProduct.designationCode}
-                      onChange={e => setNewProduct({...newProduct, designationCode: e.target.value})}
+                      onChange={e => setNewProduct({...newProduct, designationCode: e.target.value.replace(/\s+/g, '')})}
                     />
                   </div>
                   <div className="space-y-1">

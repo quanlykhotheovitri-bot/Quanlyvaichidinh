@@ -52,6 +52,7 @@ export interface DeliveryNoteItem {
   noCode: string;
   location: string;
   stock: string;
+  loaiChiDinh?: string;
   created_at?: string;
 }
 
