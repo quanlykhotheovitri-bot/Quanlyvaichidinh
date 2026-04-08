@@ -384,7 +384,8 @@ export const api = {
         note: e.note,
         quantity: e.quantity,
         type: e.type,
-        scanType: e.scanType
+        scanType: e.scanType,
+        created_at: e.created_at
       }));
       
       setCache('location_entries', entries, 30 * 24 * 3600000);
@@ -403,7 +404,8 @@ export const api = {
             note: e.note,
             quantity: e.quantity,
             type: e.type,
-            scantype: e.scanType
+            scantype: e.scanType,
+            created_at: e.created_at
           }));
           const retry = await supabase.from('location_entries').upsert(payload2);
           if (retry.error) {
@@ -418,20 +420,28 @@ export const api = {
       const currentEntries = getCache<LocationEntry[]>('location_entries') || [];
       setCache('location_entries', currentEntries.filter(e => e.id !== id), 30 * 24 * 3600000);
       
-      const { error } = await supabase.from('location_entries').delete().eq('id', id);
-      if (error) {
-        console.error('Database error during location entry deletion:', error);
-        throw error;
+      try {
+        const { error } = await supabase.from('location_entries').delete().eq('id', id);
+        if (error) {
+          console.error('Database error during location entry deletion:', error);
+          throw error;
+        }
+      } catch (err) {
+        console.warn('Offline mode: location entry deletion saved locally');
       }
     },
     async deleteByQRCode(qrcode: string): Promise<void> {
       const currentEntries = getCache<LocationEntry[]>('location_entries') || [];
       setCache('location_entries', currentEntries.filter(e => e.qrcode !== qrcode), 30 * 24 * 3600000);
       
-      const { error } = await supabase.from('location_entries').delete().eq('qrcode', qrcode);
-      if (error) {
-        console.error('Database error during location entries deletion by qrcode:', error);
-        throw error;
+      try {
+        const { error } = await supabase.from('location_entries').delete().eq('qrcode', qrcode);
+        if (error) {
+          console.error('Database error during location entries deletion by qrcode:', error);
+          throw error;
+        }
+      } catch (err) {
+        console.warn('Offline mode: location entries deletion by qrcode saved locally');
       }
     },
     async deleteAll(): Promise<void> {

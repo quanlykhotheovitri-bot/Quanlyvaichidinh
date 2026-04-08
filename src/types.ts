@@ -9,6 +9,7 @@ export interface Product {
   ghiChu?: string;
   designationCode?: string; // Mã chỉ định
   loaiChiDinh?: string; // Loại chỉ định
+  created_at?: string;
 }
 
 export interface Transaction {
@@ -22,12 +23,14 @@ export interface Transaction {
   lotNo?: string;
   ghiChu?: string;
   designationCode?: string;
+  created_at?: string;
 }
 
 export interface Customer {
   id: string;
   code: string;
   name: string;
+  created_at?: string;
 }
 
 export interface DeliveryNoteItem {
@@ -49,6 +52,7 @@ export interface DeliveryNoteItem {
   noCode: string;
   location: string;
   stock: string;
+  created_at?: string;
 }
 
 export interface InventoryItem extends Product {
@@ -56,6 +60,7 @@ export interface InventoryItem extends Product {
   totalInbound: number;
   totalOutbound: number;
   currentStock: number;
+  tempStock?: number;
 }
 
 export interface LocationEntry {
@@ -69,4 +74,5 @@ export interface LocationEntry {
   quantity: number;
   type: 'input' | 'inventory';
   scanType?: 'INPUT' | 'OUTPUT';
+  created_at?: string;
 }

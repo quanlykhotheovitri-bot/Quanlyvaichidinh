@@ -64,7 +64,7 @@ export default function App() {
     documentCode: 'WH.F-004/P-01',
     dept: 'SX 5',
     to: '',
-    date: format(new Date(), 'dd/MM/yyyy')
+    date: ''
   });
   const [deliveryNoteSubTab, setDeliveryNoteSubTab] = useState<'draft' | 'preview' | 'history'>('preview');
   const [locationSubTab, setLocationSubTab] = useState<'input' | 'output' | 'inventory'>('input');
@@ -88,7 +88,7 @@ export default function App() {
   const [tempDeliveryNoteItem, setTempDeliveryNoteItem] = useState<Partial<DeliveryNoteItem>>({});
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [newLocationEntry, setNewLocationEntry] = useState<Partial<LocationEntry>>({
-    qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: '', quantity: 1
+    qrcode: '', sku: '', partner: '', date: '', location: '', note: '', quantity: 1
   });
   const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk' | 'wipe_all_data', type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote' | 'all', qrcode?: string } | null>(null);
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
@@ -112,6 +112,7 @@ export default function App() {
   const [newCustomer, setNewCustomer] = useState<Partial<Customer>>({
     code: '', name: ''
   });
+  const [scanInput, setScanInput] = useState('');
 
   const generateId = useCallback(() => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -544,6 +545,131 @@ export default function App() {
     await createExcelFile(filteredCustomers, columns, 'DanhSachKhachHang', 'DANH SÁCH KHÁCH HÀNG');
   };
 
+  const handleProcessScanInput = async () => {
+    if (!scanInput.trim()) return;
+
+    const lines = scanInput.split('\n').filter(line => line.trim());
+    const newHistoryEntries: LocationEntry[] = [];
+    const inventoryAdditions: LocationEntry[] = [];
+    const inventoryRemovals: string[] = [];
+    const inventoryUpdates: LocationEntry[] = [];
+    
+    let activeLocation = currentLocation;
+    let tempInventory = [...locationInventoryEntries];
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      
+      // Check if it's a location (starts with FB)
+      if (trimmedLine.toUpperCase().startsWith('FB')) {
+        activeLocation = trimmedLine;
+        setCurrentLocation(activeLocation);
+        continue;
+      }
+
+      // Otherwise process as QR code
+      const qrcode = trimmedLine;
+      const parsed = parseQRCode(qrcode);
+      
+      if (parsed) {
+        // 1. Create History Entry
+        const historyEntry: LocationEntry = {
+          id: generateId(),
+          qrcode,
+          sku: parsed.sku,
+          partner: parsed.partner,
+          date: parsed.date || '',
+          location: activeLocation,
+          note: '',
+          quantity: 1,
+          type: 'input',
+          scanType: scanMode,
+          created_at: new Date().toISOString()
+        };
+        newHistoryEntries.push(historyEntry);
+
+        // 2. Handle Inventory
+        const existingIndex = tempInventory.findIndex(e => 
+          e.qrcode === qrcode && (activeLocation ? e.location === activeLocation : true)
+        );
+
+        if (scanMode === 'INPUT') {
+          if (existingIndex >= 0) {
+            const existing = tempInventory[existingIndex];
+            const updated = {
+              ...existing,
+              quantity: (existing.quantity || 0) + 1
+            };
+            tempInventory[existingIndex] = updated;
+            inventoryUpdates.push(updated);
+          } else {
+            const newInv: LocationEntry = {
+              ...historyEntry,
+              id: generateId(),
+              type: 'inventory'
+            };
+            tempInventory.push(newInv);
+            inventoryAdditions.push(newInv);
+          }
+        } else {
+          // OUTPUT: Remove from inventory
+          if (existingIndex >= 0) {
+            const existing = tempInventory[existingIndex];
+            const newQty = (existing.quantity || 0) - 1;
+            
+            if (newQty <= 0) {
+              inventoryRemovals.push(existing.id);
+              tempInventory.splice(existingIndex, 1);
+            } else {
+              const updated = {
+                ...existing,
+                quantity: newQty
+              };
+              tempInventory[existingIndex] = updated;
+              inventoryUpdates.push(updated);
+            }
+          }
+        }
+      }
+    }
+
+    if (newHistoryEntries.length > 0 || lines.some(l => l.trim().toUpperCase().startsWith('FB'))) {
+      // Update local state
+      if (newHistoryEntries.length > 0) {
+        setLocationEntries(prev => [...prev, ...newHistoryEntries]);
+        setLocationInventoryEntries(tempInventory);
+      }
+
+      try {
+        if (newHistoryEntries.length > 0) {
+          // Persist History
+          await api.locationEntries.upsertAll(newHistoryEntries);
+          
+          // Persist Inventory Additions
+          if (inventoryAdditions.length > 0) {
+            await api.locationEntries.upsertAll(inventoryAdditions);
+          }
+          
+          // Persist Inventory Updates
+          if (inventoryUpdates.length > 0) {
+            await api.locationEntries.upsertAll(inventoryUpdates);
+          }
+          
+          // Persist Inventory Removals
+          if (inventoryRemovals.length > 0) {
+            await Promise.all(inventoryRemovals.map(id => api.locationEntries.delete(id)));
+          }
+
+          showNotification(`Đã xử lý ${newHistoryEntries.length} mã thành công!`);
+        }
+        setScanInput('');
+      } catch (error) {
+        console.error('Error processing scan entries:', error);
+        showNotification('Lỗi khi xử lý dữ liệu scan.', 'error');
+      }
+    }
+  };
+
   const handleExportLocations = async () => {
     const isInv = locationSubTab === 'inventory';
     const data = isInv ? filteredLocationInventoryEntries : filteredLocationEntries;
@@ -559,9 +685,7 @@ export default function App() {
       { header: 'Mã', key: 'sku', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
       { header: 'NCC', key: 'partner', width: 20 },
       { header: 'NGÀY', key: 'date', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
-      { header: 'Cuộn', key: 'note', width: 20 },
       { header: 'Vị trí', key: 'location', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
-      { header: 'SL', key: 'quantity', width: 10, alignment: { horizontal: 'right' as ExcelJS.Alignment['horizontal'] }, isHighlight: true },
     ];
     await createExcelFile(data, columns, isInv ? 'TonViTri' : 'LichSuViTri', title);
   };
@@ -680,7 +804,8 @@ export default function App() {
           updatedEntry = {
             ...newLocationEntry as LocationEntry,
             id: generateId(),
-            type: locationSubTab === 'inventory' ? 'inventory' : 'input'
+            type: locationSubTab === 'inventory' ? 'inventory' : 'input',
+            created_at: new Date().toISOString()
           };
           setLocationInventoryEntries(prev => [...prev, updatedEntry]);
         }
@@ -689,7 +814,8 @@ export default function App() {
           ...newLocationEntry as LocationEntry,
           id: generateId(),
           type: 'input',
-          scanType: scanMode
+          scanType: scanMode,
+          created_at: new Date().toISOString()
         };
         setLocationEntries([updatedEntry, ...locationEntries]);
 
@@ -718,7 +844,8 @@ export default function App() {
             const newInventoryEntry: LocationEntry = {
               ...newLocationEntry as LocationEntry,
               id: generateId(),
-              type: 'inventory'
+              type: 'inventory',
+              created_at: new Date().toISOString()
             };
             setLocationInventoryEntries(prev => [newInventoryEntry, ...prev]);
             try {
@@ -765,7 +892,7 @@ export default function App() {
     }
     
     setIsLocationModalOpen(false);
-    setNewLocationEntry({ qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: '' });
+    setNewLocationEntry({ qrcode: '', sku: '', partner: '', date: '', location: '', note: '' });
   };
 
   const processLocationData = async (data: any[]) => {
@@ -778,8 +905,7 @@ export default function App() {
       const qrcode = String(normalizedRow['qrcode'] || normalizedRow['qr code'] || row['QR Code'] || row['qrcode'] || '').trim();
       const parsed = parseQRCode(qrcode);
       
-      const isSimpleAWB = qrcode.toUpperCase().startsWith('AWB-') && !qrcode.includes('|');
-      const defaultDate = isSimpleAWB ? '' : format(new Date(), 'dd/MM/yyyy');
+      const defaultDate = '';
 
       return {
         qrcode,
@@ -1065,7 +1191,7 @@ export default function App() {
 
       productsWithTransactions.add(t.productId);
 
-      const batchKey = `${t.productId}-${t.lotNo || ''}-${t.designationCode || ''}-${t.loaiChiDinh || ''}`;
+      const batchKey = `${t.productId}-${t.lotNo || ''}-${t.designationCode || ''}`;
       
       if (!batches[batchKey]) {
         batches[batchKey] = {
@@ -1080,6 +1206,11 @@ export default function App() {
           totalOutbound: 0,
           currentStock: 0
         };
+      } else if (t.loaiChiDinh && !batches[batchKey].loaiChiDinh?.includes(t.loaiChiDinh)) {
+        // Merge loaiChiDinh for reference if it's different
+        batches[batchKey].loaiChiDinh = batches[batchKey].loaiChiDinh 
+          ? `${batches[batchKey].loaiChiDinh}, ${t.loaiChiDinh}` 
+          : t.loaiChiDinh;
       }
 
       if (t.type === 'inbound') {
@@ -1128,6 +1259,9 @@ export default function App() {
     const currentScanType = locationSubTab === 'input' ? 'INPUT' : 'OUTPUT';
     
     return locationEntries.filter(entry => {
+      // Filter out location entries that are actually location codes (start with FB)
+      if (entry.qrcode && entry.qrcode.toUpperCase().startsWith('FB')) return false;
+
       const matchesSearch = (entry.sku || '').toLowerCase().includes(query) ||
         (entry.partner || '').toLowerCase().includes(query) ||
         (entry.location || '').toLowerCase().includes(query) ||
@@ -1146,6 +1280,9 @@ export default function App() {
     
     locationInventoryEntries.forEach(entry => {
       const qrcode = entry.qrcode;
+      // Filter out location entries that are actually location codes (start with FB)
+      if (qrcode && qrcode.toUpperCase().startsWith('FB')) return;
+
       if (groupedMap.has(qrcode)) {
         const existing = groupedMap.get(qrcode)!;
         
@@ -1219,8 +1356,7 @@ export default function App() {
   const processData = (data: any[]) => {
     const normalizeKey = (key: string) => {
       return key.toLowerCase().trim()
-        .replace(/\./g, '')
-        .replace(/\s+/g, ' ');
+        .replace(/\s+/g, ''); // Remove all spaces, keep dots
     };
 
     if (activeTab === 'inventory') {
@@ -1239,14 +1375,14 @@ export default function App() {
 
           let sku = String(
             normalizedRow['sku'] || 
-            normalizedRow['mã hàng'] || 
-            normalizedRow['mã hàng hóa'] ||
-            normalizedRow['mã hh'] ||
-            normalizedRow['mã sp'] || 
-            normalizedRow['mã sản phẩm'] || 
-            normalizedRow['mã vật tư'] ||
-            normalizedRow['item no'] ||
-            normalizedRow['item code'] ||
+            normalizedRow['mãhàng'] || 
+            normalizedRow['mãhànghóa'] ||
+            normalizedRow['mãhh'] ||
+            normalizedRow['mãsp'] || 
+            normalizedRow['mãsảnphẩm'] || 
+            normalizedRow['mãvậttư'] ||
+            normalizedRow['itemno'] ||
+            normalizedRow['itemcode'] ||
             normalizedRow['mã'] ||
             normalizedRow['item'] ||
             row.sku || row.SKU || row['Mã Hàng'] || ''
@@ -1264,16 +1400,16 @@ export default function App() {
 
           let name = String(
             normalizedRow['name'] || 
-            normalizedRow['tên hàng'] || 
-            normalizedRow['tên hàng hóa'] ||
-            normalizedRow['tên hh'] ||
-            normalizedRow['tên sp'] || 
-            normalizedRow['tên sản phẩm'] || 
-            normalizedRow['tên vật tư'] ||
-            normalizedRow['product name'] || 
-            normalizedRow['item name'] ||
+            normalizedRow['tênhàng'] || 
+            normalizedRow['tênhànghóa'] ||
+            normalizedRow['tênhh'] ||
+            normalizedRow['tênsp'] || 
+            normalizedRow['tênsảnphẩm'] || 
+            normalizedRow['tênvậttư'] ||
+            normalizedRow['productname'] || 
+            normalizedRow['itemname'] ||
             normalizedRow['description'] ||
-            normalizedRow['mô tả'] ||
+            normalizedRow['môtả'] ||
             normalizedRow['tên'] ||
             row.name || row.Name || row['Tên hàng'] || ''
           ).trim();
@@ -1285,6 +1421,15 @@ export default function App() {
           }
           if (!name) name = 'Sản phẩm mới';
 
+          const rowLot = normalizedRow['lotno'] !== undefined ? String(normalizedRow['lotno']).trim() : 
+                        (normalizedRow['lotno.'] !== undefined ? String(normalizedRow['lotno.']).trim() : undefined);
+          const rowGhiChu = normalizedRow['ghichu'] !== undefined ? String(normalizedRow['ghichu']).trim() : 
+                           (normalizedRow['ghichú'] !== undefined ? String(normalizedRow['ghichú']).trim() : undefined);
+          const rowDesignation = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).trim() : 
+                                (normalizedRow['mãchỉđịnh'] !== undefined ? String(normalizedRow['mãchỉđịnh']).trim() : undefined);
+          const rowLoai = normalizedRow['loaichidinh'] !== undefined ? String(normalizedRow['loaichidinh']).trim() : 
+                         (normalizedRow['loạichỉđịnh'] !== undefined ? String(normalizedRow['loạichỉđịnh']).trim() : undefined);
+
           const existingIndex = skuToProductIndex.get(sku);
           const productData: Product = {
             id: existingIndex !== undefined ? updatedProducts[existingIndex].id : generateId(),
@@ -1293,10 +1438,10 @@ export default function App() {
             category: normalizedRow['category'] || normalizedRow['loại'] || row.category || row.Category || 'Chưa phân loại',
             unit: normalizedRow['unit'] || normalizedRow['đơn vị'] || row.unit || row.Unit || 'Cái',
             minStock: Number(normalizedRow['minstock'] || normalizedRow['tồn tối thiểu'] || row.minStock || row.MinStock || 0),
-            lotNo: normalizedRow['lotno'] || normalizedRow['lot no'] || row.lotNo || row.LotNo || row['Lot no'] || '',
-            ghiChu: normalizedRow['ghichu'] || normalizedRow['ghi chú'] || row.ghiChu || row.GhiChu || row['Ghi chú'] || '',
-            designationCode: normalizedRow['designationcode'] || normalizedRow['mã chỉ định'] || row.designationCode || row.DesignationCode || row['Mã chỉ định'] || '',
-            loaiChiDinh: normalizedRow['loaichidinh'] || normalizedRow['loại chỉ định'] || row.loaiChiDinh || row.LoaiChiDinh || row['Loại chỉ định'] || ''
+            lotNo: rowLot ?? (existingIndex !== undefined ? updatedProducts[existingIndex].lotNo : ''),
+            ghiChu: rowGhiChu ?? (existingIndex !== undefined ? updatedProducts[existingIndex].ghiChu : ''),
+            designationCode: rowDesignation ?? (existingIndex !== undefined ? updatedProducts[existingIndex].designationCode : ''),
+            loaiChiDinh: rowLoai ?? (existingIndex !== undefined ? updatedProducts[existingIndex].loaiChiDinh : '')
           };
 
           if (existingIndex !== undefined) {
@@ -1327,14 +1472,14 @@ export default function App() {
 
           let sku = String(
             normalizedRow['sku'] || 
-            normalizedRow['mã hàng'] || 
-            normalizedRow['mã hàng hóa'] ||
-            normalizedRow['mã hh'] ||
-            normalizedRow['mã sp'] || 
-            normalizedRow['mã sản phẩm'] || 
-            normalizedRow['mã vật tư'] ||
-            normalizedRow['item no'] ||
-            normalizedRow['item code'] ||
+            normalizedRow['mãhàng'] || 
+            normalizedRow['mãhànghóa'] ||
+            normalizedRow['mãhh'] ||
+            normalizedRow['mãsp'] || 
+            normalizedRow['mãsảnphẩm'] || 
+            normalizedRow['mãvậttư'] ||
+            normalizedRow['itemno'] ||
+            normalizedRow['itemcode'] ||
             normalizedRow['mã'] ||
             normalizedRow['item'] ||
             row.sku || row.SKU || row['Mã Hàng'] || ''
@@ -1352,16 +1497,16 @@ export default function App() {
 
           let name = String(
             normalizedRow['name'] || 
-            normalizedRow['tên hàng'] || 
-            normalizedRow['tên hàng hóa'] ||
-            normalizedRow['tên hh'] ||
-            normalizedRow['tên sp'] || 
-            normalizedRow['tên sản phẩm'] || 
-            normalizedRow['tên vật tư'] ||
-            normalizedRow['product name'] || 
-            normalizedRow['item name'] ||
+            normalizedRow['tênhàng'] || 
+            normalizedRow['tênhànghóa'] ||
+            normalizedRow['tênhh'] ||
+            normalizedRow['tênsp'] || 
+            normalizedRow['tênsảnphẩm'] || 
+            normalizedRow['tênvậttư'] ||
+            normalizedRow['productname'] || 
+            normalizedRow['itemname'] ||
             normalizedRow['description'] ||
-            normalizedRow['mô tả'] ||
+            normalizedRow['môtả'] ||
             normalizedRow['tên'] ||
             row.name || row.Name || row['Tên hàng'] || ''
           ).trim();
@@ -1372,23 +1517,17 @@ export default function App() {
             currentProductName = name;
           }
 
-          const designationCode = String(
-            normalizedRow['designationcode'] || 
-            normalizedRow['mã chỉ định'] || 
-            row.designationCode || row.DesignationCode || row['Mã chỉ định'] || ''
-          ).trim();
+          const designationCode = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).trim() : 
+                                (normalizedRow['mãchỉđịnh'] !== undefined ? String(normalizedRow['mãchỉđịnh']).trim() : undefined);
 
-          const loaiChiDinh = String(
-            normalizedRow['loaichidinh'] || 
-            normalizedRow['loại chỉ định'] || 
-            row.loaiChiDinh || row.LoaiChiDinh || row['Loại chỉ định'] || ''
-          ).trim();
+          const loaiChiDinh = normalizedRow['loaichidinh'] !== undefined ? String(normalizedRow['loaichidinh']).trim() : 
+                             (normalizedRow['loạichỉđịnh'] !== undefined ? String(normalizedRow['loạichỉđịnh']).trim() : undefined);
 
-          const ghiChu = String(
-            normalizedRow['ghichu'] || 
-            normalizedRow['ghi chú'] || 
-            row.ghiChu || row.GhiChu || row['Ghi chú'] || ''
-          ).trim();
+          const ghiChu = normalizedRow['ghichu'] !== undefined ? String(normalizedRow['ghichu']).trim() : 
+                        (normalizedRow['ghichú'] !== undefined ? String(normalizedRow['ghichú']).trim() : undefined);
+
+          const lotNo = normalizedRow['lotno'] !== undefined ? String(normalizedRow['lotno']).trim() : 
+                       (normalizedRow['lotno.'] !== undefined ? String(normalizedRow['lotno.']).trim() : undefined);
 
           const existingIndex = skuToProductIndex.get(sku);
           const alreadyInNewIndex = skuToNewProductIndex.get(sku);
@@ -1397,26 +1536,26 @@ export default function App() {
             if (name && updatedProducts[existingIndex].name !== name && name !== 'Sản phẩm mới') {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], name };
             }
-            if (designationCode && updatedProducts[existingIndex].designationCode !== designationCode) {
+            if (designationCode !== undefined && updatedProducts[existingIndex].designationCode !== designationCode) {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], designationCode };
             }
-            if (loaiChiDinh && updatedProducts[existingIndex].loaiChiDinh !== loaiChiDinh) {
+            if (loaiChiDinh !== undefined && updatedProducts[existingIndex].loaiChiDinh !== loaiChiDinh) {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], loaiChiDinh };
             }
-            if (ghiChu && updatedProducts[existingIndex].ghiChu !== ghiChu) {
+            if (ghiChu !== undefined && updatedProducts[existingIndex].ghiChu !== ghiChu) {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], ghiChu };
             }
           } else if (alreadyInNewIndex !== undefined) {
             if (name && newProductsToAdd[alreadyInNewIndex].name === 'Sản phẩm mới' && name !== 'Sản phẩm mới') {
               newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], name };
             }
-            if (designationCode && newProductsToAdd[alreadyInNewIndex].designationCode === '') {
+            if (designationCode !== undefined && newProductsToAdd[alreadyInNewIndex].designationCode === '') {
               newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], designationCode };
             }
-            if (loaiChiDinh && (!newProductsToAdd[alreadyInNewIndex].loaiChiDinh || newProductsToAdd[alreadyInNewIndex].loaiChiDinh === '')) {
+            if (loaiChiDinh !== undefined && (!newProductsToAdd[alreadyInNewIndex].loaiChiDinh || newProductsToAdd[alreadyInNewIndex].loaiChiDinh === '')) {
               newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], loaiChiDinh };
             }
-            if (ghiChu && newProductsToAdd[alreadyInNewIndex].ghiChu === '') {
+            if (ghiChu !== undefined && newProductsToAdd[alreadyInNewIndex].ghiChu === '') {
               newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], ghiChu };
             }
           } else {
@@ -1429,7 +1568,7 @@ export default function App() {
               category: normalizedRow['category'] || normalizedRow['loại'] || 'Tự động tạo',
               unit: normalizedRow['unit'] || normalizedRow['đơn vị'] || 'Cái',
               minStock: 0,
-              lotNo: normalizedRow['lotno'] || normalizedRow['lot no'] || '',
+              lotNo: lotNo || '',
               ghiChu: ghiChu || '',
               designationCode: designationCode || '',
               loaiChiDinh: loaiChiDinh || ''
@@ -1488,6 +1627,15 @@ export default function App() {
             }
           }
 
+          const rowLoai = normalizedRow['loaichidinh'] !== undefined ? String(normalizedRow['loaichidinh']).trim() : 
+                         (normalizedRow['loại chỉ định'] !== undefined ? String(normalizedRow['loại chỉ định']).trim() : undefined);
+          const rowLot = normalizedRow['lotno'] !== undefined ? String(normalizedRow['lotno']).trim() : 
+                        (normalizedRow['lot no'] !== undefined ? String(normalizedRow['lot no']).trim() : undefined);
+          const rowGhiChu = normalizedRow['ghichu'] !== undefined ? String(normalizedRow['ghichu']).trim() : 
+                           (normalizedRow['ghi chú'] !== undefined ? String(normalizedRow['ghi chú']).trim() : undefined);
+          const rowDesignation = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).trim() : 
+                                (normalizedRow['mã chỉ định'] !== undefined ? String(normalizedRow['mã chỉ định']).trim() : undefined);
+
           return {
             id: generateId(),
             productId: product.id,
@@ -1495,10 +1643,10 @@ export default function App() {
             quantity: Number(normalizedRow['quantity'] || normalizedRow['số lượng'] || normalizedRow['số lượng nhập'] || normalizedRow['số lượng xuất'] || row.quantity || row.Quantity || row['Số lượng nhập'] || row['Số lượng xuất'] || 0),
             date: formattedDate,
             partner: normalizedRow['partner'] || normalizedRow['đối tác'] || normalizedRow['khách hàng'] || normalizedRow['nhà cung cấp'] || row.partner || row.Partner || 'N/A',
-            loaiChiDinh: normalizedRow['loaichidinh'] || normalizedRow['loại chỉ định'] || row.loaiChiDinh || row.LoaiChiDinh || row['Loại chỉ định'] || '',
-            lotNo: normalizedRow['lotno'] || normalizedRow['lot no'] || row.lotNo || row.LotNo || row['Lot no'] || product?.lotNo || '',
-            ghiChu: normalizedRow['ghichu'] || normalizedRow['ghi chú'] || row.ghiChu || row.GhiChu || row['Ghi chú'] || product?.ghiChu || '',
-            designationCode: normalizedRow['designationcode'] || normalizedRow['mã chỉ định'] || row.designationCode || row.DesignationCode || row['Mã chỉ định'] || product?.designationCode || ''
+            loaiChiDinh: rowLoai ?? '',
+            lotNo: rowLot ?? product?.lotNo ?? '',
+            ghiChu: rowGhiChu ?? product?.ghiChu ?? '',
+            designationCode: rowDesignation ?? product?.designationCode ?? ''
           };
         }).filter(Boolean) as Transaction[];
 
@@ -1571,13 +1719,26 @@ export default function App() {
 
   const parseQRCode = (qrcode: string) => {
     if (!qrcode) return null;
-    const parts = qrcode.split('|');
+    
+    // Clean trailing hyphen from the whole string if it exists
+    let cleanQRCode = qrcode.trim();
+    if (cleanQRCode.endsWith('-')) {
+      cleanQRCode = cleanQRCode.slice(0, -1);
+    }
+
+    const parts = cleanQRCode.split('|');
     
     if (parts.length < 2) {
-      return { sku: qrcode.trim(), partner: '', date: '' };
+      let sku = cleanQRCode;
+      if (sku.endsWith('-')) sku = sku.slice(0, -1);
+      return { sku, partner: '', date: '' };
     }
     
-    const sku = parts[0].trim();
+    let sku = parts[0].trim();
+    if (sku.endsWith('-')) {
+      sku = sku.slice(0, -1);
+    }
+    
     const rest = parts[1].trim();
     const restParts = rest.split('-');
     
@@ -1763,6 +1924,11 @@ export default function App() {
   };
 
   const processDeliveryNoteData = (data: any[]) => {
+    const normalizeKey = (key: string) => {
+      return key.toLowerCase().trim()
+        .replace(/\s+/g, ''); // Remove all spaces, keep dots to distinguish NO. from NO
+    };
+
     const productMap = new Map<string, Product>(products.map(p => [p.sku, p]));
     const customerMap = new Map<string, Customer>(customers.map(c => [c.name.toLowerCase(), c]));
     
@@ -1836,38 +2002,102 @@ export default function App() {
       tempStock: item.currentStock
     }));
 
+    // Pre-process inventory into a lookup map using concatenated keys (SKU|DesignationCode)
+    const inventoryKeyMap = new Map<string, InventoryItem[]>();
+    workingInventory.forEach(item => {
+      const sku = item.sku.toLowerCase().trim();
+      const designationCode = (item.designationCode || '').trim();
+      
+      if (designationCode === '') {
+        const key = `${sku}|empty`;
+        if (!inventoryKeyMap.has(key)) inventoryKeyMap.set(key, []);
+        inventoryKeyMap.get(key)!.push(item);
+      } else {
+        // Split codes by / and remove whitespace
+        const codes = designationCode.replace(/\s+/g, '').toLowerCase().split('/');
+        codes.forEach(code => {
+          if (code) {
+            const key = `${sku}|${code}`;
+            if (!inventoryKeyMap.has(key)) inventoryKeyMap.set(key, []);
+            inventoryKeyMap.get(key)!.push(item);
+          }
+        });
+      }
+    });
+
     const mappedData: DeliveryNoteItem[] = [];
 
     data.forEach((row, index) => {
-      const itemNo = String(row['Item No.'] || row['item'] || '').trim();
+      const normalizedRow: any = {};
+      Object.keys(row).forEach(key => {
+        normalizedRow[normalizeKey(key)] = row[key];
+      });
+
+      const itemNo = String(
+        normalizedRow['itemno'] || 
+        normalizedRow['item'] || 
+        normalizedRow['mãhàng'] ||
+        row['Item No.'] || row['item'] || row['ITEM'] || ''
+      ).trim();
+
       const product = productMap.get(itemNo);
-      const customerName = String(row['Sell-to Customer Name'] || row['Customer code'] || '').trim();
+      const customerName = String(
+        normalizedRow['sell-tocustomername'] || 
+        normalizedRow['customercode'] || 
+        normalizedRow['kháchhàng'] ||
+        row['Sell-to Customer Name'] || row['Customer code'] || ''
+      ).trim();
+
       const customer = customerMap.get(customerName.toLowerCase());
       
-      const ovnSaleOrder = String(row['OVN Sale Order'] || '').trim();
-      const ovnProductionOrder = String(row['OVN Production Order'] || '').trim();
-      const qtyNeeded = Number(row['Quantity'] || row['Qty ERP'] || 0);
+      const ovnSaleOrder = String(
+        normalizedRow['ovnsaleorder'] || 
+        row['OVN Sale Order'] || ''
+      ).trim();
 
-      const availableStock = workingInventory.filter(item => item.sku === itemNo && item.tempStock > 0);
+      const ovnProductionOrder = String(
+        normalizedRow['ovnproductionorder'] || 
+        row['OVN Production Order'] || ''
+      ).trim();
+
+      const qtyNeeded = Number(
+        normalizedRow['quantity'] || 
+        normalizedRow['qtyerp'] || 
+        normalizedRow['sốlượng'] ||
+        row['Quantity'] || row['Qty ERP'] || 0
+      );
       
-      const rproValue = String(row['RPRO'] || '').trim();
-      const noValue = String(row['No.'] || '').trim();
+      const noValue = String(
+        normalizedRow['no.'] || // Prioritize NO. (with dot) for designation code
+        (normalizedRow['no'] && !/^\d+$/.test(String(normalizedRow['no'])) ? normalizedRow['no'] : '') || // Use NO only if it's not a simple number
+        row['No.'] || row['NO.'] || ''
+      ).trim();
 
-      let rproMatches: typeof workingInventory = [];
-      let noMatches: typeof workingInventory = [];
-      let emptyMatches: typeof workingInventory = [];
+      const sku = itemNo.toLowerCase().trim();
+      const targetRpro = ovnProductionOrder.replace(/\s+/g, '').toLowerCase();
+      const targetSo = ovnSaleOrder.replace(/\s+/g, '').toLowerCase();
+      const targetNo = noValue.replace(/\s+/g, '').toLowerCase();
 
-      availableStock.forEach(item => {
-        const designationCode = (item.designationCode || '').trim();
-        
-        if (rproValue && designationCode === rproValue) {
-          rproMatches.push(item);
-        } else if (noValue && designationCode.includes(noValue) && designationCode !== '') {
-          noMatches.push(item);
-        } else if (designationCode === '') {
-          emptyMatches.push(item);
-        }
-      });
+      // Priority 1: item|OVN Production Order (or Sale Order)
+      let rproMatches: InventoryItem[] = [];
+      if (targetRpro) {
+        rproMatches = [...(inventoryKeyMap.get(`${sku}|${targetRpro}`) || [])].filter(item => item.tempStock > 0);
+      }
+      if (targetSo) {
+        const soMatches = (inventoryKeyMap.get(`${sku}|${targetSo}`) || []).filter(item => item.tempStock > 0);
+        soMatches.forEach(m => {
+          if (!rproMatches.find(rm => rm.id === m.id)) rproMatches.push(m);
+        });
+      }
+
+      // Priority 2: item|No.
+      let noMatches: InventoryItem[] = [];
+      if (targetNo) {
+        noMatches = [...(inventoryKeyMap.get(`${sku}|${targetNo}`) || [])].filter(item => item.tempStock > 0);
+      }
+
+      // Priority 3: item|empty
+      const emptyMatches = [...(inventoryKeyMap.get(`${sku}|empty`) || [])].filter(item => item.tempStock > 0);
 
       rproMatches.sort((a, b) => extractDateFromLot(a.lotNo || '') - extractDateFromLot(b.lotNo || ''));
       noMatches.sort((a, b) => extractDateFromLot(a.lotNo || '') - extractDateFromLot(b.lotNo || ''));
@@ -1894,7 +2124,7 @@ export default function App() {
           brand: String(row['Brand Code'] || ''),
           customerCode: customerName,
           finalDestination: String(row['Final Destination'] || ''),
-          noCode: customer?.code || '',
+          noCode: noValue || customer?.code || '',
           location: '',
           stock: 'Không có tồn'
         });
@@ -1936,7 +2166,7 @@ export default function App() {
             brand: String(row['Brand Code'] || ''),
             customerCode: customerName,
             finalDestination: String(row['Final Destination'] || ''),
-            noCode: customer?.code || '',
+            noCode: noValue || customer?.code || '',
             location: locationEntry ? locationEntry.location : 'Chưa có vị trí',
             stock: `${batch.currentStock} (${batch.loaiChiDinh})`
           });
@@ -3017,16 +3247,20 @@ export default function App() {
                             const isFirstInGroup = index === 0 || filteredDeliveryNotes[index - 1].item !== item.item;
                             const groupSize = isFirstInGroup ? filteredDeliveryNotes.filter(dn => dn.item === item.item).length : 0;
 
-                            const isDesignationMatch = (remark: string, saleOrder: string, prodOrder: string, custCode: string) => {
+                            const isDesignationMatch = (remark: string, prodOrder: string, saleOrder: string, noCode: string) => {
                               if (!remark) return true;
-                              const trimmedRemark = remark.trim();
-                              if (trimmedRemark === saleOrder || trimmedRemark === prodOrder) return true;
-                              if (!custCode) return false;
-                              const codes = trimmedRemark.split('/').map(c => c.trim());
-                              return codes.includes(custCode.trim());
+                              // Remove all whitespace and split by /
+                              const codes = remark.replace(/\s+/g, '').toLowerCase().split('/');
+                              const targetRpro = prodOrder.replace(/\s+/g, '').toLowerCase();
+                              const targetSo = saleOrder.replace(/\s+/g, '').toLowerCase();
+                              const targetNo = noCode.replace(/\s+/g, '').toLowerCase();
+                              
+                              return (targetRpro && codes.includes(targetRpro)) || 
+                                     (targetSo && codes.includes(targetSo)) || 
+                                     (targetNo && codes.includes(targetNo));
                             };
 
-                            const hasMismatch = !isDesignationMatch(item.remark, item.ovnSaleOrder, item.ovnProductionOrder, item.noCode);
+                            const hasMismatch = !isDesignationMatch(item.remark, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode);
 
                             return (
                               <tr 
@@ -3219,7 +3453,10 @@ export default function App() {
                     <h2 className="font-serif italic text-2xl">Quản lý Vị Trí</h2>
                     <div className="flex border-b border-gray-200">
                       <button
-                        onClick={() => setLocationSubTab('input')}
+                        onClick={() => {
+                          setLocationSubTab('input');
+                          setScanMode('INPUT');
+                        }}
                         className={cn(
                           "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2",
                           locationSubTab === 'input' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
@@ -3228,7 +3465,10 @@ export default function App() {
                         NHẬP VỊ TRÍ
                       </button>
                       <button
-                        onClick={() => setLocationSubTab('output')}
+                        onClick={() => {
+                          setLocationSubTab('output');
+                          setScanMode('OUTPUT');
+                        }}
                         className={cn(
                           "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2",
                           locationSubTab === 'output' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
@@ -3261,7 +3501,7 @@ export default function App() {
                     <button 
                       onClick={() => {
                         setEditingId(null);
-                        setNewLocationEntry({ qrcode: '', sku: '', partner: '', date: format(new Date(), 'dd/MM/yyyy'), location: '', note: '', quantity: 1 });
+                        setNewLocationEntry({ qrcode: '', sku: '', partner: '', date: '', location: '', note: '', quantity: 1 });
                         if (locationSubTab === 'output') {
                           setScanMode('OUTPUT');
                         } else {
@@ -3295,6 +3535,55 @@ export default function App() {
                 </div>
 
                 {(locationSubTab === 'input' || locationSubTab === 'output') && (
+                  <div className="bg-white border border-[#141414] p-4 space-y-4 no-print">
+                    <div className="flex items-center gap-8">
+                      <h3 className="text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+                        <MapPin size={14} />
+                        Scan / Dán dữ liệu nhanh
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setScanMode('INPUT')}
+                          className={`px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all border border-[#141414] ${
+                            scanMode === 'INPUT' 
+                              ? 'bg-blue-600 text-white opacity-100' 
+                              : 'bg-white text-blue-600 opacity-30 hover:opacity-50'
+                          }`}
+                        >
+                          NHẬP
+                        </button>
+                        <button
+                          onClick={() => setScanMode('OUTPUT')}
+                          className={`px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all border border-[#141414] ${
+                            scanMode === 'OUTPUT' 
+                              ? 'bg-red-600 text-white opacity-100' 
+                              : 'bg-white text-red-600 opacity-30 hover:opacity-50'
+                          }`}
+                        >
+                          XUẤT
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex gap-4">
+                      <textarea 
+                        value={scanInput}
+                        onChange={(e) => setScanInput(e.target.value)}
+                        placeholder="Dán mã tại đây. Vị trí bắt đầu bằng FB, QRCODE bắt đầu bằng AWB..."
+                        className="flex-1 h-24 p-3 border border-[#141414] text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#141414] resize-none"
+                      />
+                      <button 
+                        onClick={handleProcessScanInput}
+                        disabled={!scanInput.trim()}
+                        className="px-8 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50 flex flex-col items-center justify-center gap-2"
+                      >
+                        <Save size={20} />
+                        Cập nhật
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {(locationSubTab === 'input' || locationSubTab === 'output') && (
                   <div className="space-y-4">
                     <div className="border border-[#141414] overflow-auto max-h-[70vh]">
                     <table className="w-full border-collapse">
@@ -3313,9 +3602,7 @@ export default function App() {
                           <th className="border border-[#141414] p-3 text-left">Mã</th>
                           <th className="border border-[#141414] p-3 text-left">NCC</th>
                           <th className="border border-[#141414] p-3 text-left">NGÀY</th>
-                          <th className="border border-[#141414] p-3 text-left">Cuộn</th>
                           <th className="border border-[#141414] p-3 text-left">Vị trí</th>
-                          <th className="border border-[#141414] p-3 text-right">SL</th>
                           <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
                             Thao tác
                           </th>
@@ -3324,7 +3611,7 @@ export default function App() {
                       <tbody>
                         {filteredLocationEntries.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="border border-[#141414] p-8 text-center italic text-gray-400">
+                            <td colSpan={6} className="border border-[#141414] p-8 text-center italic text-gray-400">
                               Chưa có dữ liệu vị trí. Hãy nhập file Excel.
                             </td>
                           </tr>
@@ -3342,7 +3629,7 @@ export default function App() {
                                     "font-bold text-sm",
                                     entry.scanType === 'INPUT' ? "bg-yellow-400" : "bg-cyan-400"
                                   )}>
-                                    <td colSpan={7} className="border border-[#141414] p-2 uppercase">
+                                    <td colSpan={6} className="border border-[#141414] p-2 uppercase">
                                       {entry.scanType}
                                     </td>
                                   </tr>
@@ -3364,9 +3651,7 @@ export default function App() {
                                   <td className="border border-[#141414] p-3 font-bold">{entry.sku}</td>
                                   <td className="border border-[#141414] p-3">{entry.partner}</td>
                                   <td className="border border-[#141414] p-3">{entry.date}</td>
-                                  <td className="border border-[#141414] p-3 italic">{entry.note}</td>
                                   <td className="border border-[#141414] p-3 font-bold text-blue-600">{entry.location}</td>
-                                  <td className="border border-[#141414] p-3 text-right font-bold">{entry.quantity}</td>
                                   <td className="border border-[#141414] p-3 text-center">
                                     <div className="flex items-center justify-center gap-2">
                                       <button 
@@ -3421,9 +3706,7 @@ export default function App() {
                           <th className="border border-[#141414] p-3 text-left">Mã</th>
                           <th className="border border-[#141414] p-3 text-left">NCC</th>
                           <th className="border border-[#141414] p-3 text-left">NGÀY</th>
-                          <th className="border border-[#141414] p-3 text-left">Cuộn</th>
                           <th className="border border-[#141414] p-3 text-left">Vị trí</th>
-                          <th className="border border-[#141414] p-3 text-right">SL</th>
                           <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
                             Thao tác
                           </th>
@@ -3432,7 +3715,7 @@ export default function App() {
                       <tbody>
                         {filteredLocationInventoryEntries.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="border border-[#141414] p-8 text-center italic text-gray-400">
+                            <td colSpan={6} className="border border-[#141414] p-8 text-center italic text-gray-400">
                               Không có dữ liệu tồn theo vị trí. Hãy nhập file Excel (Sheet 3).
                             </td>
                           </tr>
@@ -3453,9 +3736,7 @@ export default function App() {
                               <td className="border border-[#141414] p-3 font-bold">{entry.sku}</td>
                               <td className="border border-[#141414] p-3">{entry.partner}</td>
                               <td className="border border-[#141414] p-3">{entry.date}</td>
-                              <td className="border border-[#141414] p-3 italic">{entry.note}</td>
                               <td className="border border-[#141414] p-3 font-bold text-blue-600">{entry.location}</td>
-                              <td className="border border-[#141414] p-3 text-right font-bold">{entry.quantity}</td>
                               <td className="border border-[#141414] p-3 text-center">
                                 <div className="flex items-center justify-center gap-2">
                                   <button 
@@ -3539,13 +3820,12 @@ export default function App() {
                     onChange={(e) => {
                       const qrcode = e.target.value;
                       const parsed = parseQRCode(qrcode);
-                      const isSimpleAWB = qrcode.toUpperCase().startsWith('AWB-') && !qrcode.includes('|');
                       setNewLocationEntry({
                         ...newLocationEntry,
                         qrcode,
                         sku: parsed?.sku || newLocationEntry.sku,
                         partner: parsed?.partner || newLocationEntry.partner,
-                        date: isSimpleAWB ? '' : (parsed?.date || newLocationEntry.date)
+                        date: parsed?.date || ''
                       });
                     }}
                     className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors font-mono"
@@ -3595,26 +3875,6 @@ export default function App() {
                       className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors font-bold text-blue-600"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-bold opacity-50">Số lượng</label>
-                    <input 
-                      type="number" 
-                      required
-                      min="1"
-                      value={newLocationEntry.quantity} 
-                      onChange={(e) => setNewLocationEntry({...newLocationEntry, quantity: parseInt(e.target.value) || 0})}
-                      className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors font-bold"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] uppercase font-bold opacity-50">Ghi chú</label>
-                  <input 
-                    type="text" 
-                    value={newLocationEntry.note} 
-                    onChange={(e) => setNewLocationEntry({...newLocationEntry, note: e.target.value})}
-                    className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors italic"
-                  />
                 </div>
                 <div className="flex gap-4 pt-4">
                   <button 
