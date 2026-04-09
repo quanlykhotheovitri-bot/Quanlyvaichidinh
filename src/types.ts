@@ -9,6 +9,7 @@ export interface Product {
   ghiChu?: string;
   designationCode?: string; // Mã chỉ định
   loaiChiDinh?: string; // Loại chỉ định
+  rpro?: string; // OVN Production Order
   created_at?: string;
 }
 
@@ -23,6 +24,7 @@ export interface Transaction {
   lotNo?: string;
   ghiChu?: string;
   designationCode?: string;
+  rpro?: string;
   created_at?: string;
 }
 
@@ -62,6 +64,7 @@ export interface InventoryItem extends Product {
   totalOutbound: number;
   currentStock: number;
   tempStock?: number;
+  inboundDate?: number;
 }
 
 export interface LocationEntry {

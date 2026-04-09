@@ -124,6 +124,134 @@ export default function App() {
     });
   }, []);
 
+  const extractDateFromLot = useCallback((lot: string): number => {
+    const slashMatch = lot.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (slashMatch) {
+      let [_, d, m, y] = slashMatch;
+      const year = y.length === 2 ? 2000 + parseInt(y) : parseInt(y);
+      return new Date(year, parseInt(m) - 1, parseInt(d)).getTime();
+    }
+    
+    const hyphenMatch = lot.match(/(\d{1,2})-(\d{1,2})-(\d{2,4})/);
+    if (hyphenMatch) {
+      let [_, d, m, y] = hyphenMatch;
+      const year = y.length === 2 ? 2000 + parseInt(y) : parseInt(y);
+      return new Date(year, parseInt(m) - 1, parseInt(d)).getTime();
+    }
+
+    const isoMatch = lot.match(/(\d{2,4})-(\d{1,2})-(\d{1,2})/);
+    if (isoMatch) {
+      let [_, y, m, d] = isoMatch;
+      const year = y.length === 2 ? 2000 + parseInt(y) : parseInt(y);
+      return new Date(year, parseInt(m) - 1, parseInt(d)).getTime();
+    }
+
+    return 9999999999999;
+  }, []);
+
+  const normalizeDateForMatching = useCallback((lot: string): string => {
+    const slashMatch = lot.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (slashMatch) {
+      let [_, d, m, y] = slashMatch;
+      const year = y.length === 2 ? '20' + y : y;
+      const day = d.padStart(2, '0');
+      const month = m.padStart(2, '0');
+      return `${day}/${month}/${year}`;
+    }
+    
+    const hyphenMatch = lot.match(/(\d{1,2})-(\d{1,2})-(\d{2,4})/);
+    if (hyphenMatch) {
+      let [_, d, m, y] = hyphenMatch;
+      const year = y.length === 2 ? '20' + y : y;
+      const day = d.padStart(2, '0');
+      const month = m.padStart(2, '0');
+      return `${day}/${month}/${year}`;
+    }
+
+    const isoMatch = lot.match(/(\d{2,4})-(\d{1,2})-(\d{1,2})/);
+    if (isoMatch) {
+      let [_, y, m, d] = isoMatch;
+      const year = y.length === 2 ? '20' + y : y;
+      const day = d.padStart(2, '0');
+      const month = m.padStart(2, '0');
+      return `${day}/${month}/${year}`;
+    }
+    return '';
+  }, []);
+
+  const resolveByPriority1 = useCallback((sku: string, rpro: string, inventoryRows: InventoryItem[]) => {
+    const targetRpro = rpro.replace(/\s+/g, '').toLowerCase();
+    if (!targetRpro) return [];
+    
+    return inventoryRows.filter(item => {
+      const itemSku = item.sku.toLowerCase().trim();
+      if (itemSku !== sku) return false;
+      
+      const itemRpro = (item.rpro || '').replace(/\s+/g, '').toLowerCase();
+      if (itemRpro === targetRpro) return true;
+
+      const designationCode = (item.designationCode || '').replace(/\s+/g, '').toLowerCase();
+      const codes = designationCode.split('/');
+      
+      return codes.includes(targetRpro);
+    });
+  }, []);
+
+  const resolveByPriority2 = useCallback((sku: string, no: string, inventoryRows: InventoryItem[]) => {
+    const targetNo = no.replace(/\s+/g, '').toLowerCase();
+    if (!targetNo || !targetNo.startsWith('c')) return [];
+    
+    return inventoryRows.filter(item => {
+      const itemSku = item.sku.toLowerCase().trim();
+      if (itemSku !== sku) return false;
+      
+      const designationCode = (item.designationCode || '').replace(/\s+/g, '').toLowerCase();
+      const codes = designationCode.split('/');
+      
+      return codes.includes(targetNo);
+    });
+  }, []);
+
+  const resolveByPriority3 = useCallback((sku: string, inventoryRows: InventoryItem[]) => {
+    return inventoryRows.filter(item => {
+      const itemSku = item.sku.toLowerCase().trim();
+      if (itemSku !== sku) return false;
+      
+      const designationCode = (item.designationCode || '').trim();
+      return designationCode === '';
+    });
+  }, []);
+
+  const findAssignedFabricLot = useCallback((issueRow: { sku: string, rpro: string, no: string }, inventoryRows: InventoryItem[]) => {
+    const sku = issueRow.sku.toLowerCase().trim();
+    
+    // Priority 1
+    let matches = resolveByPriority1(sku, issueRow.rpro, inventoryRows);
+    
+    // Priority 2
+    if (matches.length === 0) {
+      matches = resolveByPriority2(sku, issueRow.no, inventoryRows);
+    }
+    
+    // Priority 3
+    if (matches.length === 0) {
+      matches = resolveByPriority3(sku, inventoryRows);
+    }
+    
+    // Filter by stock > 0
+    matches = matches.filter(m => (m.tempStock !== undefined ? m.tempStock : m.currentStock) > 0);
+    
+    // Sort FIFO: 1) inboundDate, 2) ID
+    matches.sort((a, b) => {
+      const dateA = a.inboundDate || 9999999999999;
+      const dateB = b.inboundDate || 9999999999999;
+      if (dateA !== dateB) return dateA - dateB;
+      return a.id.localeCompare(b.id);
+    });
+    
+    return matches;
+  }, [resolveByPriority1, resolveByPriority2, resolveByPriority3]);
+
   React.useEffect(() => {
     setSelectedRows([]);
   }, [activeTab, locationSubTab]);
@@ -1202,15 +1330,25 @@ export default function App() {
           ghiChu: t.ghiChu || '',
           designationCode: t.designationCode || '',
           loaiChiDinh: t.loaiChiDinh || '',
+          rpro: t.rpro || product.rpro || '',
           totalInbound: 0,
           totalOutbound: 0,
-          currentStock: 0
+          currentStock: 0,
+          inboundDate: t.type === 'inbound' ? extractDateFromLot(t.lotNo || '') : 9999999999999
         };
-      } else if (t.loaiChiDinh && !batches[batchKey].loaiChiDinh?.includes(t.loaiChiDinh)) {
-        // Merge loaiChiDinh for reference if it's different
-        batches[batchKey].loaiChiDinh = batches[batchKey].loaiChiDinh 
-          ? `${batches[batchKey].loaiChiDinh}, ${t.loaiChiDinh}` 
-          : t.loaiChiDinh;
+      } else {
+        if (t.loaiChiDinh && !batches[batchKey].loaiChiDinh?.includes(t.loaiChiDinh)) {
+          // Merge loaiChiDinh for reference if it's different
+          batches[batchKey].loaiChiDinh = batches[batchKey].loaiChiDinh 
+            ? `${batches[batchKey].loaiChiDinh}, ${t.loaiChiDinh}` 
+            : t.loaiChiDinh;
+        }
+        if (t.type === 'inbound') {
+          const tDate = extractDateFromLot(t.lotNo || '');
+          if (tDate < (batches[batchKey].inboundDate || 9999999999999)) {
+            batches[batchKey].inboundDate = tDate;
+          }
+        }
       }
 
       if (t.type === 'inbound') {
@@ -1230,13 +1368,14 @@ export default function App() {
           productId: product.id,
           totalInbound: 0,
           totalOutbound: 0,
-          currentStock: 0
+          currentStock: 0,
+          inboundDate: 9999999999999
         };
       }
     });
 
     return Object.values(batches);
-  }, [products, transactions]);
+  }, [products, transactions, extractDateFromLot]);
 
   const filteredInventory = useMemo(() => {
     const query = searchQuery.toLowerCase();
@@ -1245,6 +1384,50 @@ export default function App() {
       item.sku.toLowerCase().includes(query)
     );
   }, [inventory, searchQuery]);
+
+  // Tự động điền LOT NO khi người dùng nhập AWB/RPRO/NO trong Modal chỉnh sửa
+  useEffect(() => {
+    if (isDeliveryNoteEditModalOpen && tempDeliveryNoteItem.item) {
+      const matches = findAssignedFabricLot(
+        { 
+          sku: tempDeliveryNoteItem.item, 
+          rpro: tempDeliveryNoteItem.ovnProductionOrder || '', 
+          no: tempDeliveryNoteItem.noCode || '' 
+        },
+        inventory
+      );
+      
+      if (matches.length > 0) {
+        const bestMatch = matches[0];
+        // Tự động điền nếu Lot No đang trống
+        if (!tempDeliveryNoteItem.lotNo) {
+          const normalizedLotDate = normalizeDateForMatching(bestMatch.lotNo || '');
+          const locationEntry = locationInventoryEntries.find(e => 
+            e.sku === tempDeliveryNoteItem.item && e.date === normalizedLotDate
+          );
+
+          setTempDeliveryNoteItem(prev => ({
+            ...prev,
+            lotNo: bestMatch.lotNo,
+            location: locationEntry ? locationEntry.location : 'Chưa có vị trí',
+            stock: `${bestMatch.currentStock} (${bestMatch.loaiChiDinh || 'N/A'})`
+          }));
+        }
+      } else if (tempDeliveryNoteItem.item && (tempDeliveryNoteItem.ovnProductionOrder || tempDeliveryNoteItem.noCode)) {
+        // Nếu không tìm thấy và đã nhập đủ thông tin thì có thể xóa lotNo hoặc để người dùng tự nhập
+        // Ở đây ta giữ nguyên để người dùng tự xử lý nếu muốn
+      }
+    }
+  }, [
+    tempDeliveryNoteItem.item, 
+    tempDeliveryNoteItem.ovnProductionOrder, 
+    tempDeliveryNoteItem.noCode, 
+    isDeliveryNoteEditModalOpen,
+    findAssignedFabricLot,
+    inventory,
+    locationInventoryEntries,
+    normalizeDateForMatching
+  ]);
 
   const filteredCustomers = useMemo(() => {
     const query = searchQuery.toLowerCase();
@@ -1931,99 +2114,11 @@ export default function App() {
 
     const productMap = new Map<string, Product>(products.map(p => [p.sku, p]));
     const customerMap = new Map<string, Customer>(customers.map(c => [c.name.toLowerCase(), c]));
-    
-    const inventoryBySku = new Map<string, InventoryItem[]>();
-    inventory.forEach(item => {
-      if (!inventoryBySku.has(item.sku)) {
-        inventoryBySku.set(item.sku, []);
-      }
-      inventoryBySku.get(item.sku)!.push(item);
-    });
-
-    // The priorityOrder array was removed entirely per user request, replaced by strict RPRO -> No -> Empty matching logic.
-
-    const extractDateFromLot = (lot: string): number => {
-      const slashMatch = lot.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-      if (slashMatch) {
-        let [_, d, m, y] = slashMatch;
-        const year = y.length === 2 ? 2000 + parseInt(y) : parseInt(y);
-        return new Date(year, parseInt(m) - 1, parseInt(d)).getTime();
-      }
-      
-      const hyphenMatch = lot.match(/(\d{1,2})-(\d{1,2})-(\d{2,4})/);
-      if (hyphenMatch) {
-        let [_, d, m, y] = hyphenMatch;
-        const year = y.length === 2 ? 2000 + parseInt(y) : parseInt(y);
-        return new Date(year, parseInt(m) - 1, parseInt(d)).getTime();
-      }
-
-      const isoMatch = lot.match(/(\d{2,4})-(\d{1,2})-(\d{1,2})/);
-      if (isoMatch) {
-        let [_, y, m, d] = isoMatch;
-        const year = y.length === 2 ? 2000 + parseInt(y) : parseInt(y);
-        return new Date(year, parseInt(m) - 1, parseInt(d)).getTime();
-      }
-
-      return 9999999999999;
-    };
-
-    const normalizeDateForMatching = (lot: string): string => {
-      const slashMatch = lot.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-      if (slashMatch) {
-        let [_, d, m, y] = slashMatch;
-        const year = y.length === 2 ? '20' + y : y;
-        const day = d.padStart(2, '0');
-        const month = m.padStart(2, '0');
-        return `${day}/${month}/${year}`;
-      }
-      
-      const hyphenMatch = lot.match(/(\d{1,2})-(\d{1,2})-(\d{2,4})/);
-      if (hyphenMatch) {
-        let [_, d, m, y] = hyphenMatch;
-        const year = y.length === 2 ? '20' + y : y;
-        const day = d.padStart(2, '0');
-        const month = m.padStart(2, '0');
-        return `${day}/${month}/${year}`;
-      }
-
-      const isoMatch = lot.match(/(\d{2,4})-(\d{1,2})-(\d{1,2})/);
-      if (isoMatch) {
-        let [_, y, m, d] = isoMatch;
-        const year = y.length === 2 ? '20' + y : y;
-        const day = d.padStart(2, '0');
-        const month = m.padStart(2, '0');
-        return `${day}/${month}/${year}`;
-      }
-      return '';
-    };
 
     const workingInventory = inventory.map(item => ({
       ...item,
       tempStock: item.currentStock
     }));
-
-    // Pre-process inventory into a lookup map using concatenated keys (SKU|DesignationCode)
-    const inventoryKeyMap = new Map<string, InventoryItem[]>();
-    workingInventory.forEach(item => {
-      const sku = item.sku.toLowerCase().trim();
-      const designationCode = (item.designationCode || '').trim();
-      
-      if (designationCode === '') {
-        const key = `${sku}|empty`;
-        if (!inventoryKeyMap.has(key)) inventoryKeyMap.set(key, []);
-        inventoryKeyMap.get(key)!.push(item);
-      } else {
-        // Split codes by / and remove whitespace
-        const codes = designationCode.replace(/\s+/g, '').toLowerCase().split('/');
-        codes.forEach(code => {
-          if (code) {
-            const key = `${sku}|${code}`;
-            if (!inventoryKeyMap.has(key)) inventoryKeyMap.set(key, []);
-            inventoryKeyMap.get(key)!.push(item);
-          }
-        });
-      }
-    });
 
     const mappedData: DeliveryNoteItem[] = [];
 
@@ -2074,9 +2169,6 @@ export default function App() {
       ).trim();
 
       const sku = itemNo.toLowerCase().trim();
-      const targetRpro = ovnProductionOrder.replace(/\s+/g, '').toLowerCase();
-      const targetSo = ovnSaleOrder.replace(/\s+/g, '').toLowerCase();
-      const targetNo = noValue.replace(/\s+/g, '').toLowerCase();
 
       const rowLoaiChiDinh = String(
         normalizedRow['loaichidinh'] || 
@@ -2084,51 +2176,13 @@ export default function App() {
         row['Loại chỉ định'] || ''
       ).trim().toUpperCase();
 
-      // Priority 1: item|OVN Production Order (or Sale Order)
-      let rproMatches: InventoryItem[] = [];
-      if (targetRpro) {
-        rproMatches = [...(inventoryKeyMap.get(`${sku}|${targetRpro}`) || [])].filter(item => item.tempStock > 0);
-      }
-      if (targetSo) {
-        const soMatches = (inventoryKeyMap.get(`${sku}|${targetSo}`) || []).filter(item => item.tempStock > 0);
-        soMatches.forEach(m => {
-          if (!rproMatches.find(rm => rm.id === m.id)) rproMatches.push(m);
-        });
-      }
+      // Sử dụng hàm findAssignedFabricLot để tìm các cuộn vải phù hợp theo thứ tự ưu tiên
+      const validBatches = findAssignedFabricLot(
+        { sku: itemNo, rpro: ovnProductionOrder, no: noValue },
+        workingInventory
+      );
 
-      // Priority 2: item|No.
-      let noMatches: InventoryItem[] = [];
-      if (targetNo) {
-        noMatches = [...(inventoryKeyMap.get(`${sku}|${targetNo}`) || [])].filter(item => item.tempStock > 0);
-      }
-
-      // Priority 3: item|empty
-      const emptyMatches = [...(inventoryKeyMap.get(`${sku}|empty`) || [])].filter(item => item.tempStock > 0);
-
-      rproMatches.sort((a, b) => extractDateFromLot(a.lotNo || '') - extractDateFromLot(b.lotNo || ''));
-      noMatches.sort((a, b) => extractDateFromLot(a.lotNo || '') - extractDateFromLot(b.lotNo || ''));
-      emptyMatches.sort((a, b) => extractDateFromLot(a.lotNo || '') - extractDateFromLot(b.lotNo || ''));
-
-      let validBatches: InventoryItem[] = [];
-      
-      if (rowLoaiChiDinh.includes('KH') || rowLoaiChiDinh.includes('SO')) {
-        // For KH or SO types, strictly use RPRO/SO matches
-        validBatches = [...rproMatches];
-      } else if (rowLoaiChiDinh.includes('NCC')) {
-        // For NCC type, strictly use No matches
-        validBatches = [...noMatches];
-      } else if (rowLoaiChiDinh.includes('NORMAL') || rowLoaiChiDinh.includes('VAI')) {
-        // For Normal type, strictly use empty matches
-        validBatches = [...emptyMatches];
-      } else {
-        // If type is unspecified, use the priority fallback logic
-        validBatches = [...rproMatches, ...noMatches, ...emptyMatches];
-      }
-
-      // Xóa trùng lặp nếu có
-      validBatches = validBatches.filter((batch, i, self) => i === self.findIndex(b => b.id === batch.id));
-
-      if (validBatches.length === 0 || validBatches.reduce((sum, b) => sum + b.tempStock, 0) === 0) {
+      if (validBatches.length === 0 || validBatches.reduce((sum, b) => (b.tempStock !== undefined ? b.tempStock : b.currentStock), 0) === 0) {
         mappedData.push({
           id: generateId(),
           no: 0,
@@ -2146,7 +2200,7 @@ export default function App() {
           finalDestination: String(row['Final Destination'] || ''),
           noCode: noValue || customer?.code || '',
           location: '',
-          stock: 'Không có tồn',
+          stock: 'Không tìm thấy tồn kho phù hợp theo chỉ định',
           loaiChiDinh: rowLoaiChiDinh
         });
       } else {
@@ -4196,6 +4250,24 @@ export default function App() {
                     />
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">RPRO (OVN Production Order)</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={tempDeliveryNoteItem.ovnProductionOrder}
+                      onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, ovnProductionOrder: e.target.value, lotNo: ''})}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">NO (NoCode)</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={tempDeliveryNoteItem.noCode}
+                      onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, noCode: e.target.value, lotNo: ''})}
+                    />
+                  </div>
+                </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold opacity-50">Qty ERP</label>
@@ -4242,6 +4314,12 @@ export default function App() {
                     />
                   </div>
                 </div>
+                {tempDeliveryNoteItem.stock === 'Không tìm thấy tồn kho phù hợp theo chỉ định' && (
+                  <div className="flex items-center gap-2 text-red-600 bg-red-50 p-2 border border-red-200">
+                    <AlertTriangle size={16} />
+                    <span className="text-xs font-bold">Cảnh báo: Không tìm thấy tồn kho phù hợp theo chỉ định</span>
+                  </div>
+                )}
                 <div className="flex gap-4 pt-4">
                   <button 
                     type="button"
