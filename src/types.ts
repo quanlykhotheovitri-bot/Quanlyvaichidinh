@@ -47,6 +47,7 @@ export interface DeliveryNoteItem {
   actualQty?: number;
   lotNo: string;
   actualIssuedQty?: number;
+  lotNoList?: string[]; // For display
   remark: string;
   brand: string;
   customerCode: string;
@@ -56,6 +57,14 @@ export interface DeliveryNoteItem {
   stock: string;
   loaiChiDinh?: string;
   created_at?: string;
+  assignedLots?: {
+    lotNo: string;
+    qty: number;
+    stock: string;
+    location: string;
+    remark: string;
+    loaiChiDinh: string;
+  }[];
 }
 
 export interface InventoryItem extends Product {

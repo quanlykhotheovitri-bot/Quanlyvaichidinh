@@ -190,8 +190,9 @@ export default function App() {
       const itemRpro = (item.rpro || '').replace(/\s+/g, '').toLowerCase();
       if (itemRpro === targetRpro) return true;
 
-      const designationCode = (item.designationCode || '').replace(/\s+/g, '').toLowerCase();
-      const codes = designationCode.split('/');
+      // Tách mã chỉ định bằng nhiều loại dấu phân cách: /, dấu phẩy, hoặc khoảng trắng
+      const designationCode = (item.designationCode || '').toLowerCase().trim();
+      const codes = designationCode.split(/[\/,\s]+/).map(c => c.trim()).filter(Boolean);
       
       return codes.includes(targetRpro);
     });
@@ -199,14 +200,15 @@ export default function App() {
 
   const resolveByPriority2 = useCallback((sku: string, no: string, inventoryRows: InventoryItem[]) => {
     const targetNo = no.replace(/\s+/g, '').toLowerCase();
+    // Chỉ xét nếu mã khách hàng bắt đầu bằng chữ C
     if (!targetNo || !targetNo.startsWith('c')) return [];
     
     return inventoryRows.filter(item => {
       const itemSku = item.sku.toLowerCase().trim();
       if (itemSku !== sku) return false;
       
-      const designationCode = (item.designationCode || '').replace(/\s+/g, '').toLowerCase();
-      const codes = designationCode.split('/');
+      const designationCode = (item.designationCode || '').toLowerCase().trim();
+      const codes = designationCode.split(/[\/,\s]+/).map(c => c.trim()).filter(Boolean);
       
       return codes.includes(targetNo);
     });
@@ -437,12 +439,41 @@ export default function App() {
     }
   };
 
+  const recalculateActualQty = (notes: DeliveryNoteItem[]) => {
+    const groups = new Map<string, DeliveryNoteItem[]>();
+    notes.forEach(item => {
+      if (!groups.has(item.item)) groups.set(item.item, []);
+      groups.get(item.item)!.push(item);
+    });
+
+    groups.forEach(items => {
+      const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
+      const targetTotal = Math.ceil(totalQtyErp);
+      const diff = targetTotal - totalQtyErp;
+      
+      let maxIdx = 0;
+      let maxVal = -1;
+      items.forEach((item, idx) => {
+        if (item.qtyErp > maxVal) {
+          maxVal = item.qtyErp;
+          maxIdx = idx;
+        }
+      });
+
+      items.forEach((item, idx) => {
+        item.actualQty = (idx === maxIdx) ? Number((item.qtyErp + diff).toFixed(4)) : item.qtyErp;
+      });
+    });
+    return [...notes];
+  };
+
   const saveDeliveryNoteItemEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingDeliveryNoteId !== null) {
-      const updatedNotes = deliveryNotes.map(item => 
+      let updatedNotes = deliveryNotes.map(item => 
         item.id === editingDeliveryNoteId ? { ...item, ...tempDeliveryNoteItem } as DeliveryNoteItem : item
       );
+      updatedNotes = recalculateActualQty(updatedNotes);
       setDeliveryNotes(updatedNotes);
       try {
         await api.deliveryNotes.upsertAll(updatedNotes);
@@ -456,9 +487,15 @@ export default function App() {
 
   const handleEditDeliveryNoteItem = (index: number, field: keyof DeliveryNoteItem, value: any) => {
     const itemAtId = filteredDeliveryNotes[index].id;
-    setDeliveryNotes(prev => prev.map(item => 
-      item.id === itemAtId ? { ...item, [field]: value } : item
-    ));
+    setDeliveryNotes(prev => {
+      let updated = prev.map(item => 
+        item.id === itemAtId ? { ...item, [field]: value } : item
+      );
+      if (field === 'qtyErp') {
+        updated = recalculateActualQty(updated);
+      }
+      return updated;
+    });
   };
 
   const handlePostDeliveryNote = async () => {
@@ -468,7 +505,25 @@ export default function App() {
     const newTransactions: Transaction[] = [];
 
     deliveryNotes.forEach(item => {
-      if (item.actualQty > 0) {
+      if (item.assignedLots && item.assignedLots.length > 0) {
+        item.assignedLots.forEach(lot => {
+          const product = products.find(p => p.sku === item.item);
+          if (product) {
+            newTransactions.push({
+              id: generateId(),
+              productId: product.id,
+              type: 'outbound',
+              quantity: lot.qty,
+              date: today,
+              partner: item.customerCode || item.noCode || 'Unknown',
+              lotNo: lot.lotNo,
+              ghiChu: 'Xuất từ Phiếu giao nhận',
+              designationCode: lot.remark,
+              loaiChiDinh: lot.loaiChiDinh
+            });
+          }
+        });
+      } else if (item.actualQty && item.actualQty > 0) {
         const product = products.find(p => p.sku === item.item);
         if (product) {
           newTransactions.push({
@@ -1429,6 +1484,86 @@ export default function App() {
     normalizeDateForMatching
   ]);
 
+  const autoAssignLotsFromUI = useCallback(() => {
+    if (deliveryNotes.length === 0) {
+      showNotification('Không có dữ liệu để xử lý', 'error');
+      return;
+    }
+
+    const workingInventory = inventory.map(item => ({
+      ...item,
+      tempStock: item.currentStock
+    }));
+
+    const updatedNotes = deliveryNotes.map(item => {
+      const matches = findAssignedFabricLot(
+        { sku: item.item, rpro: item.ovnProductionOrder, no: item.noCode },
+        workingInventory
+      );
+
+      if (matches.length === 0) {
+        return {
+          ...item,
+          assignedLots: [],
+          lotNo: '',
+          actualQty: 0,
+          actualIssuedQty: 0,
+          location: '',
+          stock: 'Không tìm thấy tồn kho phù hợp theo chỉ định'
+        };
+      }
+
+      let remainingNeeded = item.actualQty || item.qtyErp;
+      const assignedLots = [];
+
+      for (const match of matches) {
+        if (remainingNeeded <= 0) break;
+
+        const available = match.tempStock !== undefined ? match.tempStock : match.currentStock;
+        if (available <= 0) continue;
+
+        const allocation = Math.min(available, remainingNeeded);
+        
+        if (match.tempStock !== undefined) {
+          match.tempStock -= allocation;
+        } else {
+          match.tempStock = match.currentStock - allocation;
+        }
+
+        const normalizedLotDate = normalizeDateForMatching(match.lotNo || '');
+        const locationEntry = locationInventoryEntries.find(e => 
+          e.sku === item.item && e.date === normalizedLotDate
+        );
+
+        assignedLots.push({
+          lotNo: match.lotNo || '',
+          qty: allocation,
+          stock: `${match.currentStock} (${match.loaiChiDinh || 'N/A'})`,
+          location: locationEntry ? locationEntry.location : 'Chưa có vị trí',
+          remark: match.designationCode || '',
+          loaiChiDinh: match.loaiChiDinh || ''
+        });
+
+        remainingNeeded -= allocation;
+      }
+
+      const totalQty = assignedLots.reduce((sum, l) => sum + l.qty, 0);
+
+      return {
+        ...item,
+        assignedLots,
+        lotNo: assignedLots.map(l => l.lotNo).join(', '),
+        // Keep actualQty as the rounded target, update actualIssuedQty with assigned amount
+        actualIssuedQty: totalQty,
+        location: assignedLots.map(l => l.location).join(', '),
+        stock: remainingNeeded > 0 ? `Thiếu ${remainingNeeded.toLocaleString()}` : `Đã gán ${assignedLots.length} Lot`
+      };
+    });
+
+    setDeliveryNotes(updatedNotes);
+    showNotification('Đã tự động gán Lot No (gộp thông tin vào một dòng)', 'success');
+  }, [deliveryNotes, inventory, findAssignedFabricLot, locationInventoryEntries, normalizeDateForMatching]);
+
   const filteredCustomers = useMemo(() => {
     const query = searchQuery.toLowerCase();
     return customers.filter(c => 
@@ -2109,20 +2244,10 @@ export default function App() {
   const processDeliveryNoteData = (data: any[]) => {
     const normalizeKey = (key: string) => {
       return key.toLowerCase().trim()
-        .replace(/\s+/g, ''); // Remove all spaces, keep dots to distinguish NO. from NO
+        .replace(/\s+/g, '');
     };
 
-    const productMap = new Map<string, Product>(products.map(p => [p.sku, p]));
-    const customerMap = new Map<string, Customer>(customers.map(c => [c.name.toLowerCase(), c]));
-
-    const workingInventory = inventory.map(item => ({
-      ...item,
-      tempStock: item.currentStock
-    }));
-
-    const mappedData: DeliveryNoteItem[] = [];
-
-    data.forEach((row, index) => {
+    const mappedData: DeliveryNoteItem[] = data.map((row, index) => {
       const normalizedRow: any = {};
       Object.keys(row).forEach(key => {
         normalizedRow[normalizeKey(key)] = row[key];
@@ -2135,16 +2260,6 @@ export default function App() {
         row['Item No.'] || row['item'] || row['ITEM'] || ''
       ).trim();
 
-      const product = productMap.get(itemNo);
-      const customerName = String(
-        normalizedRow['sell-tocustomername'] || 
-        normalizedRow['customercode'] || 
-        normalizedRow['kháchhàng'] ||
-        row['Sell-to Customer Name'] || row['Customer code'] || ''
-      ).trim();
-
-      const customer = customerMap.get(customerName.toLowerCase());
-      
       const ovnSaleOrder = String(
         normalizedRow['ovnsaleorder'] || 
         row['OVN Sale Order'] || ''
@@ -2155,7 +2270,7 @@ export default function App() {
         row['OVN Production Order'] || ''
       ).trim();
 
-      const qtyNeeded = Number(
+      const qtyErp = Number(
         normalizedRow['quantity'] || 
         normalizedRow['qtyerp'] || 
         normalizedRow['sốlượng'] ||
@@ -2163,134 +2278,123 @@ export default function App() {
       );
       
       const noValue = String(
-        normalizedRow['no.'] || // Prioritize NO. (with dot) for designation code
-        (normalizedRow['no'] && !/^\d+$/.test(String(normalizedRow['no'])) ? normalizedRow['no'] : '') || // Use NO only if it's not a simple number
-        row['No.'] || row['NO.'] || ''
+        normalizedRow['no.'] || 
+        normalizedRow['no'] || 
+        row['No.'] || row['NO.'] || row['No'] || row['NO'] || ''
       ).trim();
 
-      const sku = itemNo.toLowerCase().trim();
-
-      const rowLoaiChiDinh = String(
+      const loaiChiDinh = String(
         normalizedRow['loaichidinh'] || 
         normalizedRow['loạichỉđịnh'] || 
         row['Loại chỉ định'] || ''
       ).trim().toUpperCase();
 
-      // Sử dụng hàm findAssignedFabricLot để tìm các cuộn vải phù hợp theo thứ tự ưu tiên
-      const validBatches = findAssignedFabricLot(
-        { sku: itemNo, rpro: ovnProductionOrder, no: noValue },
-        workingInventory
-      );
+      const materialName = String(
+        normalizedRow['materialname'] || 
+        normalizedRow['tênhàng'] ||
+        normalizedRow['ovnfullname'] ||
+        row['Material Name'] || row['OVN Full Name'] || ''
+      ).trim();
 
-      if (validBatches.length === 0 || validBatches.reduce((sum, b) => (b.tempStock !== undefined ? b.tempStock : b.currentStock), 0) === 0) {
-        mappedData.push({
-          id: generateId(),
-          no: 0,
-          ovnSaleOrder: ovnSaleOrder,
-          ovnProductionOrder: ovnProductionOrder,
-          item: itemNo,
-          materialName: String(row['OVN Full Name'] || product?.name || ''),
-          unit: 'YDS',
-          qtyErp: qtyNeeded,
-          actualQty: 0,
-          lotNo: '',
-          remark: '',
-          brand: String(row['Brand Code'] || ''),
-          customerCode: customerName,
-          finalDestination: String(row['Final Destination'] || ''),
-          noCode: noValue || customer?.code || '',
-          location: '',
-          stock: 'Không tìm thấy tồn kho phù hợp theo chỉ định',
-          loaiChiDinh: rowLoaiChiDinh
-        });
-      } else {
-        let remainingToFulfill = qtyNeeded;
-        
-        for (let i = 0; i < validBatches.length; i++) {
-          const batch = validBatches[i];
-          if (remainingToFulfill <= 0) break;
-          if (batch.tempStock <= 0) continue;
-          
-          let allocation = Math.min(batch.tempStock, remainingToFulfill);
-          
-          // Nếu đây là batch cuối cùng mà vẫn chưa đủ qtyNeeded thì lấy hết số còn lại
-          if (i === validBatches.length - 1 && remainingToFulfill > batch.tempStock) {
-            allocation = remainingToFulfill;
-          }
-          
-          batch.tempStock -= allocation;
-          remainingToFulfill -= allocation;
+      const unit = String(
+        normalizedRow['unit'] || 
+        normalizedRow['đơnvị'] ||
+        row['Unit'] || 'YDS'
+      ).trim();
 
-          const normalizedLotDate = normalizeDateForMatching(batch.lotNo || '');
-          const locationEntry = locationInventoryEntries.find(e => 
-            e.sku === itemNo && e.date === normalizedLotDate
-          );
+      const brand = String(
+        normalizedRow['brand'] || 
+        normalizedRow['brandcode'] ||
+        row['Brand'] || row['Brand Code'] || ''
+      ).trim();
 
-          mappedData.push({
-            id: generateId(),
-            no: 0,
-            ovnSaleOrder: ovnSaleOrder,
-            ovnProductionOrder: ovnProductionOrder,
-            item: itemNo,
-            materialName: String(row['OVN Full Name'] || product?.name || ''),
-            unit: 'YDS',
-            qtyErp: allocation,
-            actualQty: allocation,
-            lotNo: batch.lotNo || '',
-            remark: batch.designationCode || '',
-            brand: String(row['Brand Code'] || ''),
-            customerCode: customerName,
-            finalDestination: String(row['Final Destination'] || ''),
-            noCode: noValue || customer?.code || '',
-            location: locationEntry ? locationEntry.location : 'Chưa có vị trí',
-            stock: `${batch.currentStock} (${batch.loaiChiDinh})`,
-            loaiChiDinh: rowLoaiChiDinh
-          });
+      const customerCode = String(
+        normalizedRow['customercode'] || 
+        normalizedRow['mãkháchhàng'] || 
+        normalizedRow['selltocustomername'] ||
+        row['Customer code'] || row['Sell-to Customer Name'] || ''
+      ).trim();
+
+      let finalNoCode = noValue;
+      if (!finalNoCode && customerCode) {
+        const foundCustomer = customers.find(c => 
+          c.name.toLowerCase() === customerCode.toLowerCase() || 
+          c.code.toLowerCase() === customerCode.toLowerCase()
+        );
+        if (foundCustomer) {
+          finalNoCode = foundCustomer.code;
         }
       }
+
+      const finalDestination = String(
+        normalizedRow['finaldestination'] || 
+        normalizedRow['đến'] || 
+        row['Final Destination'] || ''
+      ).trim();
+
+      const remark = String(
+        normalizedRow['remark'] || 
+        normalizedRow['ghichú'] || 
+        row['remark'] || ''
+      ).trim();
+
+      return {
+        id: generateId(),
+        no: index + 1,
+        ovnSaleOrder,
+        ovnProductionOrder,
+        item: itemNo,
+        materialName,
+        unit,
+        qtyErp,
+        actualQty: 0,
+        lotNo: '',
+        actualIssuedQty: 0,
+        remark,
+        loaiChiDinh,
+        brand,
+        customerCode,
+        finalDestination,
+        noCode: finalNoCode,
+        location: '',
+        stock: ''
+      };
     });
 
-    const sortedData = mappedData.sort((a, b) => a.item.localeCompare(b.item));
-    
-    const groups: { [key: string]: DeliveryNoteItem[] } = {};
-    sortedData.forEach(item => {
-      if (!groups[item.item]) groups[item.item] = [];
-      groups[item.item].push(item);
-    });
-
-    Object.values(groups).forEach(group => {
-      const validRows = group.filter(item => item.stock !== 'Không có tồn');
-
-      if (validRows.length > 0) {
-        const totalQtyErp = validRows.reduce((sum, item) => sum + item.qtyErp, 0);
-        const roundedTotal = Math.ceil(totalQtyErp);
-        const diff = roundedTotal - totalQtyErp;
-        
-        let maxRow = validRows[0];
-        validRows.forEach(item => {
-          if (item.qtyErp > maxRow.qtyErp) maxRow = item;
-        });
-        
-        maxRow.actualQty = maxRow.qtyErp + diff;
-        
-        group.forEach(item => {
-          item.actualIssuedQty = roundedTotal;
-        });
-      } else {
-        group.forEach(item => {
-          item.actualQty = 0;
-          item.actualIssuedQty = 0;
-        });
-      }
-    });
-
-    const finalData = sortedData.map((item, index) => ({
+    const finalData = mappedData.map((item, index) => ({
       ...item,
       no: index + 1
     }));
 
+    // Apply rounding logic by ITEM
+    const groups = new Map<string, DeliveryNoteItem[]>();
+    finalData.forEach(item => {
+      if (!groups.has(item.item)) groups.set(item.item, []);
+      groups.get(item.item)!.push(item);
+    });
+
+    groups.forEach(items => {
+      const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
+      const targetTotal = Math.ceil(totalQtyErp);
+      const diff = targetTotal - totalQtyErp;
+      
+      let maxIdx = 0;
+      let maxVal = -1;
+      items.forEach((item, idx) => {
+        if (item.qtyErp > maxVal) {
+          maxVal = item.qtyErp;
+          maxIdx = idx;
+        }
+      });
+
+      items.forEach((item, idx) => {
+        item.actualQty = (idx === maxIdx) ? Number((item.qtyErp + diff).toFixed(4)) : item.qtyErp;
+      });
+    });
+
     setDeliveryNotes(finalData);
     api.deliveryNotes.upsertAll(finalData).catch(err => console.error('Error syncing delivery notes:', err));
+    showNotification(`Đã tải lên ${mappedData.length} dòng. Hãy nhấn "Gắn Lot tự động" để tìm tồn kho phù hợp.`, 'success');
   };
 
   const processCustomerData = (data: any[]) => {
@@ -3017,6 +3121,14 @@ export default function App() {
                     {deliveryNoteSubTab === 'preview' && (
                       <>
                         <button 
+                          onClick={autoAssignLotsFromUI}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-blue-700 transition-colors"
+                          title="Tự động tìm và gán Lot No cho toàn bộ danh sách hiện tại"
+                        >
+                          <Package size={14} />
+                          Gắn Lot tự động
+                        </button>
+                        <button 
                           onClick={handlePostDeliveryNote}
                           className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-green-700 transition-colors"
                         >
@@ -3316,15 +3428,12 @@ export default function App() {
                       <tbody>
                         {filteredDeliveryNotes.length === 0 ? (
                           <tr>
-                            <td colSpan={17} className="p-12 text-center text-gray-400 italic">
+                            <td colSpan={19} className="p-12 text-center text-gray-400 italic">
                               Chưa có dữ liệu. Vui lòng tải lên file nguồn để cập nhật.
                             </td>
                           </tr>
                         ) : (
                           filteredDeliveryNotes.map((item, index) => {
-                            const isFirstInGroup = index === 0 || filteredDeliveryNotes[index - 1].item !== item.item;
-                            const groupSize = isFirstInGroup ? filteredDeliveryNotes.filter(dn => dn.item === item.item).length : 0;
-
                             const isDesignationMatch = (remark: string, prodOrder: string, saleOrder: string, noCode: string) => {
                               if (!remark) return true;
                               // Remove all whitespace and split by /
@@ -3339,6 +3448,41 @@ export default function App() {
                             };
 
                             const hasMismatch = !isDesignationMatch(item.remark, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode);
+
+                            // RowSpan logic
+                            const isFirstInItemGroup = index === 0 || filteredDeliveryNotes[index - 1].item !== item.item;
+                            let itemGroupSize = 0;
+                            if (isFirstInItemGroup) {
+                              for (let i = index; i < filteredDeliveryNotes.length; i++) {
+                                if (filteredDeliveryNotes[i].item === item.item) {
+                                  itemGroupSize++;
+                                } else {
+                                  break;
+                                }
+                              }
+                            }
+
+                            // Aggregate lots for the group
+                            const getGroupedLots = (itemCode: string, startIndex: number, size: number) => {
+                              const groupItems = filteredDeliveryNotes.slice(startIndex, startIndex + size);
+                              const allLots: {lotNo: string, qty: number, stock: string, location: string, loaiChiDinh: string}[] = [];
+                              
+                              groupItems.forEach(gi => {
+                                if (gi.assignedLots) {
+                                  gi.assignedLots.forEach(lot => {
+                                    const existing = allLots.find(l => l.lotNo === lot.lotNo);
+                                    if (existing) {
+                                      existing.qty += lot.qty;
+                                    } else {
+                                      allLots.push({ ...lot });
+                                    }
+                                  });
+                                }
+                              });
+                              return allLots;
+                            };
+
+                            const groupLots = isFirstInItemGroup ? getGroupedLots(item.item, index, itemGroupSize) : [];
 
                             return (
                               <tr 
@@ -3361,23 +3505,46 @@ export default function App() {
                                 <td className="border border-[#141414] p-2">{item.materialName}</td>
                                 <td className="border border-[#141414] p-2 text-center">{item.unit}</td>
                                 <td className="border border-[#141414] p-2 text-right font-mono">{item.qtyErp.toLocaleString()}</td>
-                                <td className="border border-[#141414] p-2 text-right font-mono">
-                                  <input 
-                                    type="number"
-                                    value={item.actualQty || 0}
-                                    onChange={(e) => handleEditDeliveryNoteItem(index, 'actualQty', Number(e.target.value))}
-                                    className="w-full bg-transparent text-right focus:outline-none focus:ring-1 focus:ring-[#141414]"
-                                  />
+                                
+                                <td className="border border-[#141414] p-2 text-right font-mono bg-blue-50/30">
+                                  {item.assignedLots && item.assignedLots.length > 0 ? (
+                                    item.actualQty.toLocaleString()
+                                  ) : (
+                                    <input 
+                                      type="number"
+                                      value={item.actualQty || 0}
+                                      onChange={(e) => handleEditDeliveryNoteItem(index, 'actualQty', Number(e.target.value))}
+                                      className="w-full bg-transparent text-right focus:outline-none focus:ring-1 focus:ring-[#141414]"
+                                    />
+                                  )}
                                 </td>
-                                <td className="border border-[#141414] p-2">{item.lotNo}</td>
-                                {isFirstInGroup ? (
-                                  <td 
-                                    rowSpan={groupSize} 
-                                    className="border border-[#141414] p-2 text-right font-mono align-middle bg-gray-50/50"
-                                  >
-                                    {item.actualIssuedQty?.toLocaleString()}
-                                  </td>
+                                
+                                {isFirstInItemGroup ? (
+                                  <>
+                                    <td rowSpan={itemGroupSize} className="border border-[#141414] p-2 bg-blue-50/30 align-middle">
+                                      {groupLots.length > 0 ? (
+                                        <div className="flex flex-col gap-1">
+                                          {groupLots.map((lot, idx) => (
+                                            <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
+                                              {lot.lotNo} ({lot.qty.toLocaleString()})
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        item.lotNo
+                                      )}
+                                    </td>
+                                    <td rowSpan={itemGroupSize} className="border border-[#141414] p-2 text-right font-mono align-middle bg-gray-50/50 text-blue-600 font-bold">
+                                      {groupLots.length > 0 ? (
+                                        groupLots.reduce((sum, lot) => sum + lot.qty, 0).toLocaleString()
+                                      ) : (
+                                        filteredDeliveryNotes.slice(index, index + itemGroupSize)
+                                          .reduce((sum, gi) => sum + (gi.actualIssuedQty || 0), 0).toLocaleString()
+                                      )}
+                                    </td>
+                                  </>
                                 ) : null}
+
                                 <td className={cn(
                                   "border border-[#141414] p-2",
                                   hasMismatch && "bg-red-200 font-bold"
@@ -3395,17 +3562,51 @@ export default function App() {
                                     </div>
                                   )}
                                 </td>
-                                <td className="border border-[#141414] p-2">{item.loaiChiDinh}</td>
+                                <td className="border border-[#141414] p-2 bg-blue-50/30">
+                                  {item.assignedLots && item.assignedLots.length > 0 ? (
+                                    <div className="flex flex-col gap-1">
+                                      {item.assignedLots.map((lot, idx) => (
+                                        <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
+                                          {lot.loaiChiDinh}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    item.loaiChiDinh
+                                  )}
+                                </td>
                                 <td className="border border-[#141414] p-2">{item.brand}</td>
                                 <td className="border border-[#141414] p-2">{item.customerCode}</td>
                                 <td className="border border-[#141414] p-2">{item.finalDestination}</td>
                                 <td className="border border-[#141414] p-2">{item.noCode}</td>
-                                <td className="border border-[#141414] p-2">{item.location}</td>
+                                <td className="border border-[#141414] p-2">
+                                  {item.assignedLots && item.assignedLots.length > 0 ? (
+                                    <div className="flex flex-col gap-1">
+                                      {item.assignedLots.map((lot, idx) => (
+                                        <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
+                                          {lot.location}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    item.location
+                                  )}
+                                </td>
                                 <td className={cn(
-                                  "border border-[#141414] p-2",
+                                  "border border-[#141414] p-2 bg-blue-50/30",
                                   item.stock === 'Không có tồn' ? "bg-red-500 text-white font-bold" : ""
                                 )}>
-                                  {item.stock}
+                                  {item.assignedLots && item.assignedLots.length > 0 ? (
+                                    <div className="flex flex-col gap-1">
+                                      {item.assignedLots.map((lot, idx) => (
+                                        <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
+                                          {lot.stock}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    item.stock
+                                  )}
                                 </td>
                                 <td className="border border-[#141414] p-2 no-print text-center">
                                   <div className="flex items-center justify-center gap-2">
