@@ -340,6 +340,16 @@ export const api = {
         console.warn('Offline mode: upsertAll delivery notes saved locally');
       }
     },
+    async delete(id: string): Promise<void> {
+      const currentNotes = getCache<DeliveryNoteItem[]>('delivery_notes') || [];
+      setCache('delivery_notes', currentNotes.filter(n => n.id !== id), 30 * 24 * 3600000);
+      
+      const { error } = await supabase.from('delivery_notes').delete().eq('id', id);
+      if (error) {
+        console.error('Database error during delivery note deletion:', error);
+        throw error;
+      }
+    },
     async deleteAll(): Promise<void> {
       setCache('delivery_notes', [], 30 * 24 * 3600000);
       const { error } = await supabase.from('delivery_notes').delete().neq('id', '');

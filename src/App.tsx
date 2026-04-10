@@ -23,7 +23,8 @@ import {
   WifiOff,
   AlertCircle,
   CheckCircle2,
-  X
+  X,
+  Menu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -53,6 +54,7 @@ type Tab = 'dashboard' | 'inbound' | 'outbound' | 'inventory' | 'customers' | 'd
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -113,6 +115,10 @@ export default function App() {
     code: '', name: ''
   });
   const [scanInput, setScanInput] = useState('');
+
+  useEffect(() => {
+    setSelectedRows([]);
+  }, [activeTab, deliveryNoteSubTab]);
 
   const generateId = useCallback(() => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -470,9 +476,13 @@ export default function App() {
   const saveDeliveryNoteItemEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingDeliveryNoteId !== null) {
-      let updatedNotes = deliveryNotes.map(item => 
-        item.id === editingDeliveryNoteId ? { ...item, ...tempDeliveryNoteItem } as DeliveryNoteItem : item
-      );
+      let updatedNotes = deliveryNotes.map(item => {
+        if (item.id === editingDeliveryNoteId) {
+          const newItem = { ...item, ...tempDeliveryNoteItem } as DeliveryNoteItem;
+          return { ...newItem, location: getLocationByItemAndLot(newItem.item, newItem.lotNo) };
+        }
+        return item;
+      });
       updatedNotes = recalculateActualQty(updatedNotes);
       setDeliveryNotes(updatedNotes);
       try {
@@ -493,6 +503,14 @@ export default function App() {
       );
       if (field === 'qtyErp') {
         updated = recalculateActualQty(updated);
+      }
+      if (field === 'item' || field === 'lotNo') {
+        updated = updated.map(item => {
+          if (item.id === itemAtId) {
+            return { ...item, location: getLocationByItemAndLot(item.item, item.lotNo) };
+          }
+          return item;
+        });
       }
       return updated;
     });
@@ -959,7 +977,13 @@ export default function App() {
     e.preventDefault();
     let updatedEntry: LocationEntry;
     if (editingId) {
-      updatedEntry = { ...newLocationEntry, id: editingId, type: locationSubTab === 'inventory' ? 'inventory' : 'input' } as LocationEntry;
+      const normalizedDate = normalizeDateForMatching(newLocationEntry.date || '');
+      updatedEntry = { 
+        ...newLocationEntry, 
+        date: normalizedDate || newLocationEntry.date,
+        id: editingId, 
+        type: locationSubTab === 'inventory' ? 'inventory' : 'input' 
+      } as LocationEntry;
       if (locationSubTab === 'input' || locationSubTab === 'output') {
         setLocationEntries(locationEntries.map(entry => entry.id === editingId ? updatedEntry : entry));
       } else {
@@ -967,6 +991,9 @@ export default function App() {
       }
       setEditingId(null);
     } else {
+      const normalizedDate = normalizeDateForMatching(newLocationEntry.date || '');
+      const finalDate = normalizedDate || newLocationEntry.date || '';
+
       if (locationSubTab === 'inventory') {
         const existingIndex = locationInventoryEntries.findIndex(
           entry => entry.qrcode === newLocationEntry.qrcode && entry.location === newLocationEntry.location
@@ -977,7 +1004,7 @@ export default function App() {
             ...existing,
             sku: newLocationEntry.sku || existing.sku,
             partner: newLocationEntry.partner || existing.partner,
-            date: newLocationEntry.date || existing.date,
+            date: finalDate || existing.date,
             note: newLocationEntry.note || existing.note,
             quantity: (existing.quantity || 0) + (newLocationEntry.quantity || 0),
           };
@@ -986,6 +1013,7 @@ export default function App() {
         } else {
           updatedEntry = {
             ...newLocationEntry as LocationEntry,
+            date: finalDate,
             id: generateId(),
             type: locationSubTab === 'inventory' ? 'inventory' : 'input',
             created_at: new Date().toISOString()
@@ -995,6 +1023,7 @@ export default function App() {
       } else {
         updatedEntry = {
           ...newLocationEntry as LocationEntry,
+          date: finalDate,
           id: generateId(),
           type: 'input',
           scanType: scanMode,
@@ -1088,13 +1117,15 @@ export default function App() {
       const qrcode = String(normalizedRow['qrcode'] || normalizedRow['qr code'] || row['QR Code'] || row['qrcode'] || '').trim();
       const parsed = parseQRCode(qrcode);
       
-      const defaultDate = '';
+      const rawDate = String(normalizedRow['date'] || normalizedRow['ngày'] || row['Ngày'] || row['date'] || '');
+      const normalizedDate = normalizeDateForMatching(rawDate);
+      const finalDate = normalizedDate || rawDate || parsed?.date || '';
 
       return {
         qrcode,
         sku: normalizedRow['sku'] || row['SKU'] || row['sku'] || parsed?.sku || '',
         partner: normalizedRow['partner'] || normalizedRow['đối tác'] || row['Đối tác'] || row['partner'] || parsed?.partner || '',
-        date: normalizedRow['date'] || normalizedRow['ngày'] || row['Ngày'] || row['date'] || parsed?.date || defaultDate,
+        date: finalDate,
         location: normalizedRow['location'] || normalizedRow['vị trí'] || normalizedRow['vi tri'] || row['Vị trí'] || row['location'] || '',
         note: normalizedRow['note'] || normalizedRow['ghi chú'] || normalizedRow['cuộn'] || normalizedRow['cuon'] || row['Cuộn'] || row['Ghi chú'] || row['note'] || '',
         quantity: parseInt(String(normalizedRow['quantity'] || normalizedRow['số lượng'] || normalizedRow['so luong'] || row['Số lượng'] || row['quantity'] || '1')) || 1
@@ -1297,6 +1328,28 @@ export default function App() {
           loadData();
         }
       }
+    } else if (currentTab === 'deliveryNote') {
+      if (deliveryNoteSubTab === 'preview') {
+        setDeliveryNotes(prev => prev.filter(item => !idsToDelete.includes(item.id)));
+        try {
+          await Promise.all(idsToDelete.map(id => api.deliveryNotes.delete(id)));
+          showNotification('Đã xóa các mục phiếu giao nhận thành công.');
+        } catch (error) {
+          console.error('Error in bulk delete delivery notes:', error);
+          showNotification('Lỗi khi xóa phiếu giao nhận.', 'error');
+          loadData();
+        }
+      } else {
+        setSavedDeliveryNotes(prev => prev.filter(n => !idsToDelete.includes(n.id)));
+        try {
+          await Promise.all(idsToDelete.map(id => api.savedDeliveryNotes.delete(id)));
+          showNotification('Đã xóa các phiếu lưu thành công.');
+        } catch (error) {
+          console.error('Error in bulk delete saved delivery notes:', error);
+          showNotification('Lỗi khi xóa phiếu lưu.', 'error');
+          loadData();
+        }
+      }
     }
 
     setSelectedRows([]);
@@ -1447,6 +1500,24 @@ export default function App() {
       .join(' | ');
   }, [inventory]);
 
+  const getLocationByItemAndLot = useCallback((sku: string, lotNo: string) => {
+    if (!sku) return 'Chưa có vị trí';
+    
+    const skuLower = sku.toLowerCase().trim();
+    const normalizedLotDate = normalizeDateForMatching(lotNo || '');
+    
+    const matches = locationInventoryEntries.filter(e => 
+      (e.sku || '').toLowerCase().trim() === skuLower && 
+      (e.date || '') === normalizedLotDate
+    );
+    
+    if (matches.length === 0) return 'Chưa có vị trí';
+
+    // Aggregate unique locations
+    const locations = Array.from(new Set(matches.map(m => m.location).filter(Boolean)));
+    return locations.length > 0 ? locations.join(', ') : 'Chưa có vị trí';
+  }, [locationInventoryEntries, normalizeDateForMatching]);
+
   const filteredInventory = useMemo(() => {
     const query = searchQuery.toLowerCase();
     return inventory.filter(item => 
@@ -1545,16 +1616,13 @@ export default function App() {
           match.tempStock = match.currentStock - allocation;
         }
 
-        const normalizedLotDate = normalizeDateForMatching(match.lotNo || '');
-        const locationEntry = locationInventoryEntries.find(e => 
-          e.sku === item.item && e.date === normalizedLotDate
-        );
+        const location = getLocationByItemAndLot(item.item, match.lotNo || '');
 
         assignedLots.push({
           lotNo: match.lotNo || '',
           qty: allocation,
           stock: `${match.currentStock} (${match.loaiChiDinh || 'N/A'})`,
-          location: locationEntry ? locationEntry.location : 'Chưa có vị trí',
+          location: location,
           remark: match.designationCode || '',
           loaiChiDinh: match.loaiChiDinh || ''
         });
@@ -2353,6 +2421,12 @@ export default function App() {
         row['remark'] || ''
       ).trim();
 
+      const lotNo = String(
+        normalizedRow['lotno'] || 
+        normalizedRow['lot'] || 
+        row['Lot No'] || row['lot'] || ''
+      ).trim();
+
       return {
         id: generateId(),
         no: index + 1,
@@ -2363,7 +2437,7 @@ export default function App() {
         unit,
         qtyErp,
         actualQty: 0,
-        lotNo: '',
+        lotNo: lotNo,
         actualIssuedQty: 0,
         remark,
         loaiChiDinh,
@@ -2371,7 +2445,7 @@ export default function App() {
         customerCode,
         finalDestination,
         noCode: finalNoCode,
-        location: '',
+        location: getLocationByItemAndLot(itemNo, lotNo),
         stock: ''
       };
     });
@@ -2499,53 +2573,75 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans flex">
-      <aside className="w-64 border-r border-[#141414] flex flex-col">
-        <div className="p-6 border-bottom border-[#141414]">
-          <h1 className="font-serif italic text-2xl font-bold tracking-tight">KHO.LOG</h1>
-          <p className="text-[10px] uppercase tracking-widest opacity-50 mt-1">Warehouse Management System</p>
+    <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans flex relative">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Sidebar */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-50 w-64 border-r border-[#141414] bg-[#E4E3E0] flex flex-col transition-transform duration-300 lg:relative lg:translate-x-0",
+        isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="p-6 border-b border-[#141414] flex justify-between items-center">
+          <div>
+            <h1 className="font-serif italic text-2xl font-bold tracking-tight">KHO.LOG</h1>
+            <p className="text-[10px] uppercase tracking-widest opacity-50 mt-1">Warehouse Management System</p>
+          </div>
+          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2">
+            <X size={20} />
+          </button>
         </div>
 
-        <nav className="flex-1 px-4 py-8 space-y-2">
+        <nav className="flex-1 px-4 py-8 space-y-2 overflow-y-auto">
           <NavItem 
             active={activeTab === 'dashboard'} 
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => { setActiveTab('dashboard'); setIsSidebarOpen(false); }}
             icon={<LayoutDashboard size={18} />}
             label="Tổng quan"
           />
           <NavItem 
             active={activeTab === 'inbound'} 
-            onClick={() => setActiveTab('inbound')}
+            onClick={() => { setActiveTab('inbound'); setIsSidebarOpen(false); }}
             icon={<ArrowDownToLine size={18} />}
             label="Nhập kho"
           />
           <NavItem 
             active={activeTab === 'outbound'} 
-            onClick={() => setActiveTab('outbound')}
+            onClick={() => { setActiveTab('outbound'); setIsSidebarOpen(false); }}
             icon={<ArrowUpFromLine size={18} />}
             label="Xuất kho"
           />
           <NavItem 
             active={activeTab === 'inventory'} 
-            onClick={() => setActiveTab('inventory')}
+            onClick={() => { setActiveTab('inventory'); setIsSidebarOpen(false); }}
             icon={<Package size={18} />}
             label="Tồn kho"
           />
           <NavItem 
             active={activeTab === 'customers'} 
-            onClick={() => setActiveTab('customers')}
+            onClick={() => { setActiveTab('customers'); setIsSidebarOpen(false); }}
             icon={<Users size={18} />}
             label="Danh sách khách hàng"
           />
           <NavItem 
             active={activeTab === 'deliveryNote'} 
-            onClick={() => setActiveTab('deliveryNote')}
+            onClick={() => { setActiveTab('deliveryNote'); setIsSidebarOpen(false); }}
             icon={<FileText size={18} />}
             label="Lệnh xuất kho"
           />
           <NavItem 
             active={activeTab === 'location'} 
-            onClick={() => setActiveTab('location')}
+            onClick={() => { setActiveTab('location'); setIsSidebarOpen(false); }}
             icon={<MapPin size={18} />}
             label="Vị Trí"
           />
@@ -2564,88 +2660,76 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-20 border-b border-[#141414] flex items-center justify-between px-8 bg-[#E4E3E0]/80 backdrop-blur-sm z-10">
-          <div className="flex items-center gap-4 flex-1 max-w-md">
-            <Search size={18} className="opacity-40" />
-            <input 
-              type="text" 
-              placeholder="Tìm kiếm sản phẩm, mã SKU, đối tác..." 
-              className="bg-transparent border-none outline-none w-full text-sm placeholder:italic"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+      <main className="flex-1 flex flex-col overflow-hidden w-full">
+        <header className="h-20 border-b border-[#141414] flex items-center justify-between px-4 sm:px-8 bg-[#E4E3E0]/80 backdrop-blur-sm z-10 gap-4">
+          <div className="flex items-center gap-4 flex-1">
+            <button 
+              onClick={() => setIsSidebarOpen(true)}
+              className="lg:hidden p-2 border border-[#141414] hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+            >
+              <Menu size={20} />
+            </button>
+            <div className="flex items-center gap-3 flex-1 max-w-md">
+              <Search size={18} className="opacity-40 shrink-0" />
+              <input 
+                type="text" 
+                placeholder="Tìm kiếm..." 
+                className="bg-transparent border-none outline-none w-full text-sm placeholder:italic"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={handleSaveAll}
-              disabled={isSaving}
-              className={`flex items-center gap-2 px-4 py-2 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-80 ${!isOnline ? 'bg-red-600 text-white' : isSaving ? 'bg-[#ff9900] text-black' : 'bg-[#141414] text-[#E4E3E0] hover:opacity-90'}`}
-              title={!isOnline ? "Hoạt động Ngoại Tuyến (Offline)" : "Hệ thống đã bật tự động lưu"}
-            >
-              {!isOnline ? (
-                <WifiOff size={14} />
-              ) : isSaving ? (
-                <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <Save size={14} />
+          <div className="flex items-center gap-2 sm:gap-4">
+            <div className="hidden sm:flex items-center gap-2 sm:gap-4">
+              <button 
+                onClick={handleSaveAll}
+                disabled={isSaving}
+                className={`flex items-center gap-2 px-3 sm:px-4 py-2 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-80 ${!isOnline ? 'bg-red-600 text-white' : isSaving ? 'bg-[#ff9900] text-black' : 'bg-[#141414] text-[#E4E3E0] hover:opacity-90'}`}
+                title={!isOnline ? "Hoạt động Ngoại Tuyến (Offline)" : "Hệ thống đã bật tự động lưu"}
+              >
+                {!isOnline ? (
+                  <WifiOff size={14} />
+                ) : isSaving ? (
+                  <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Save size={14} />
+                )}
+                <span className="hidden md:inline">{isSaving ? 'Đang lưu...' : 'Lưu tất cả'}</span>
+              </button>
+              
+              {selectedRows.length > 0 && (
+                <button 
+                  onClick={() => {
+                    const type = activeTab === 'inventory' ? 'product' : 
+                                 activeTab === 'customers' ? 'customer' : 
+                                 activeTab === 'location' ? 'location' : 
+                                 'transaction';
+                    setDeleteTarget({ id: 'bulk', type });
+                    setIsDeleteConfirmOpen(true);
+                  }}
+                  className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-red-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-red-700 transition-colors"
+                >
+                  <Trash2 size={14} />
+                  <span className="hidden md:inline">Xóa</span> ({selectedRows.length})
+                </button>
               )}
-              {isSaving ? 'Đang lưu...' : 'Lưu tất cả'}
-            </button>
-            <button 
-              onClick={() => {
-                setDeleteTarget({ id: 'wipe_all_data', type: 'all' });
-                setIsDeleteConfirmOpen(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-red-800 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-red-900 transition-colors"
-              title="Xóa toàn bộ tồn kho, nhập kho, xuất kho, và vị trí"
-            >
-              <Trash2 size={14} />
-              Xóa tất cả
-            </button>
-            {selectedRows.length > 0 && (
+            </div>
+
+            <div className="flex items-center gap-2">
               <button 
-                onClick={() => {
-                  const type = activeTab === 'inventory' ? 'product' : 
-                               activeTab === 'customers' ? 'customer' : 
-                               activeTab === 'location' ? 'location' : 
-                               'transaction';
-                  setDeleteTarget({ id: 'bulk', type });
-                  setIsDeleteConfirmOpen(true);
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-red-700 transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-[#141414] text-[10px] font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                title="Cập nhật file"
               >
-                <Trash2 size={14} />
-                Xóa ({selectedRows.length})
+                <FileUp size={14} />
+                <span className="hidden md:inline">Cập nhật file</span>
               </button>
-            )}
-            {activeTab === 'deliveryNote' && deliveryNoteSubTab === 'preview' && (
-              <button 
-                onClick={() => setDeliveryNotes([])}
-                className="flex items-center gap-2 px-3 py-2 border border-[#141414] text-[10px] font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
-              >
-                <Trash2 size={14} />
-                Làm mới
+              <button className="p-2 border border-[#141414] hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
+                <Filter size={18} />
               </button>
-            )}
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 px-4 py-2 border border-[#141414] text-[10px] font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
-            >
-              <FileUp size={14} />
-              Cập nhật file
-            </button>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleFileUpload} 
-              accept=".csv,.xlsx,.xls,.xlsm" 
-              className="hidden" 
-            />
-            <button className="p-2 border border-[#141414] hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
-              <Filter size={18} />
-            </button>
+            </div>
           </div>
         </header>
 
@@ -2666,7 +2750,7 @@ export default function App() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-8">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-8">
           <AnimatePresence mode="wait">
             {activeTab === 'dashboard' && (
               <motion.div 
@@ -2676,7 +2760,7 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-8"
               >
-                <div className="grid grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
                   <StatCard 
                     label="CHI ĐỊNH THEO KH" 
                     value={stats.chiDinhKH} 
@@ -2703,12 +2787,12 @@ export default function App() {
                   />
                 </div>
 
-                <div className="grid grid-cols-4 gap-8">
-                  <div className="col-span-3 border border-[#141414] p-6 bg-[#1a5f7a] text-white">
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                  <div className="lg:col-span-3 border border-[#141414] p-4 sm:p-6 bg-[#1a5f7a] text-white">
                     <div className="border border-white/30 p-2 inline-block mb-6">
-                      <h3 className="text-xs font-bold uppercase tracking-widest">BIỂU ĐỒ TỒN KHO THEO LOẠI CHỈ ĐỊNH</h3>
+                      <h3 className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">BIỂU ĐỒ TỒN KHO THEO LOẠI CHỈ ĐỊNH</h3>
                     </div>
-                    <div className="h-[400px]">
+                    <div className="h-[300px] sm:h-[400px]">
                       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                         <BarChart data={chartData}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ffffff" strokeOpacity={0.1} />
@@ -2724,10 +2808,10 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="border border-[#141414] p-8 bg-[#1a5f7a] text-white flex flex-col gap-4">
+                  <div className="border border-[#141414] p-6 sm:p-8 bg-[#1a5f7a] text-white flex flex-col gap-4">
                     <div className="space-y-1">
-                      <p className="text-[11px] font-bold uppercase tracking-wider opacity-80">TỔNG MÃ TỒN KHO :</p>
-                      <p className="text-3xl font-bold">{stats.totalStockCodes.toLocaleString()}</p>
+                      <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-80">TỔNG MÃ TỒN KHO :</p>
+                      <p className="text-2xl sm:text-3xl font-bold">{stats.totalStockCodes.toLocaleString()}</p>
                     </div>
                     <div className="space-y-1 mt-4">
                       <p className="text-[11px] font-bold uppercase tracking-wider opacity-80">TỔNG SỐ LƯỢNG TỒN KHO:</p>
@@ -2746,42 +2830,54 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
               >
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <h2 className="font-serif italic text-2xl capitalize">
                     {activeTab === 'inbound' ? 'Danh sách nhập kho' : 'Danh sách xuất kho'}
                   </h2>
-                  <div className="flex gap-3">
-                    <div className="relative">
+                  <div className="flex flex-wrap gap-2 sm:gap-3">
+                    <div className="relative flex-1 sm:flex-none">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                       <input
                         type="text"
-                        placeholder="Tìm kiếm giao dịch..."
+                        placeholder="Tìm kiếm..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10 pr-4 py-2 border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-64"
+                        className="pl-10 pr-4 py-2 border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-full sm:w-64"
                       />
                     </div>
+                    {selectedRows.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setDeleteTarget({ id: 'bulk', type: 'transaction' });
+                          setIsDeleteConfirmOpen(true);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-red-700 transition-colors"
+                      >
+                        <Trash2 size={14} />
+                        <span className="hidden sm:inline">Xóa</span> ({selectedRows.length})
+                      </button>
+                    )}
                     <button 
                       onClick={handleExportTransactions}
-                      className="flex items-center gap-2 px-6 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                      className="flex items-center gap-2 px-4 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
                     >
                       <Download size={14} />
-                      Xuất Excel
+                      <span className="hidden sm:inline">Xuất Excel</span>
                     </button>
                     <button 
                       onClick={() => {
                         setNewTransaction(prev => ({ ...prev, type: activeTab as 'inbound' | 'outbound' }));
                         setIsTransactionModalOpen(true);
                       }}
-                      className="flex items-center gap-2 px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                      className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
                     >
                       <Plus size={14} />
-                      Thêm giao dịch
+                      <span className="hidden sm:inline">Thêm giao dịch</span>
                     </button>
                   </div>
                 </div>
 
-                <div className="border border-[#141414] overflow-auto max-h-[70vh]">
+                <div className="border border-[#141414] overflow-x-auto max-h-[70vh]">
                   <table className="w-full border-collapse min-w-[1000px]">
                     <thead className="sticky top-0 z-10 shadow-sm">
                       <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
@@ -2873,34 +2969,46 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
               >
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <h2 className="font-serif italic text-2xl">Báo cáo tồn kho</h2>
-                  <div className="flex gap-3">
-                    <div className="relative">
+                  <div className="flex flex-wrap gap-2 sm:gap-3">
+                    <div className="relative flex-1 sm:flex-none">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                       <input
                         type="text"
-                        placeholder="Tìm kiếm tồn kho..."
+                        placeholder="Tìm kiếm..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10 pr-4 py-2 border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-64"
+                        className="pl-10 pr-4 py-2 border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-full sm:w-64"
                       />
                     </div>
-                    <button onClick={handleExportInventory}  className="flex items-center gap-2 px-6 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
+                    {selectedRows.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setDeleteTarget({ id: 'bulk', type: 'inventory' });
+                          setIsDeleteConfirmOpen(true);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-red-700 transition-colors"
+                      >
+                        <Trash2 size={14} />
+                        <span className="hidden sm:inline">Xóa</span> ({selectedRows.length})
+                      </button>
+                    )}
+                    <button onClick={handleExportInventory}  className="flex items-center gap-2 px-4 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
                       <Download size={14} />
-                      Xuất báo cáo
+                      <span className="hidden sm:inline">Xuất báo cáo</span>
                     </button>
                     <button 
                       onClick={() => setIsProductModalOpen(true)}
-                      className="flex items-center gap-2 px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                      className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
                     >
                       <Plus size={14} />
-                      Thêm sản phẩm
+                      <span className="hidden sm:inline">Thêm sản phẩm</span>
                     </button>
                   </div>
                 </div>
 
-                <div className="border border-[#141414] overflow-auto max-h-[70vh]">
+                <div className="border border-[#141414] overflow-x-auto max-h-[70vh]">
                   <table className="w-full border-collapse min-w-[1200px]">
                     <thead className="sticky top-0 z-10 shadow-sm">
                       <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
@@ -2988,26 +3096,38 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
               >
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <h2 className="font-serif italic text-2xl">Danh sách khách hàng</h2>
-                  <div className="flex gap-3">
-                    <div className="relative">
+                  <div className="flex flex-wrap gap-2 sm:gap-3">
+                    <div className="relative flex-1 sm:flex-none">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                       <input
                         type="text"
-                        placeholder="Tìm kiếm khách hàng..."
+                        placeholder="Tìm kiếm..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10 pr-4 py-2 border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-64"
+                        className="pl-10 pr-4 py-2 border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-full sm:w-64"
                       />
                     </div>
-                    <button onClick={handleExportCustomers} className="flex items-center gap-2 px-6 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"><Download size={14} />Xuất Excel</button>
+                    {selectedRows.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setDeleteTarget({ id: 'bulk', type: 'customer' });
+                          setIsDeleteConfirmOpen(true);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-red-700 transition-colors"
+                      >
+                        <Trash2 size={14} />
+                        <span className="hidden sm:inline">Xóa</span> ({selectedRows.length})
+                      </button>
+                    )}
+                    <button onClick={handleExportCustomers} className="flex items-center gap-2 px-4 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"><Download size={14} /><span className="hidden sm:inline">Xuất Excel</span></button>
                     <button 
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center gap-2 px-6 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                      className="flex items-center gap-2 px-4 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
                     >
                       <FileUp size={14} />
-                      Tải lên file
+                      <span className="hidden sm:inline">Tải lên file</span>
                     </button>
                     <button 
                       onClick={() => {
@@ -3015,16 +3135,16 @@ export default function App() {
                         setNewCustomer({ code: '', name: '' });
                         setIsCustomerModalOpen(true);
                       }}
-                      className="flex items-center gap-2 px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                      className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
                     >
                       <Plus size={14} />
-                      Thêm khách hàng
+                      <span className="hidden sm:inline">Thêm khách hàng</span>
                     </button>
                   </div>
                 </div>
 
-                <div className="border border-[#141414] overflow-auto max-h-[70vh]">
-                  <table className="w-full border-collapse">
+                <div className="border border-[#141414] overflow-x-auto max-h-[70vh]">
+                  <table className="w-full border-collapse min-w-[600px]">
                     <thead className="sticky top-0 z-10 shadow-sm">
                       <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
                         <th className="border border-[#141414] p-3 w-10">
@@ -3098,14 +3218,14 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
               >
-                <div className="flex justify-between items-center no-print">
-                  <div className="flex items-center gap-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6 w-full">
                     <h2 className="font-serif italic text-2xl">Lệnh xuất kho</h2>
-                    <div className="flex border-b border-gray-200">
+                    <div className="flex border-b border-gray-200 w-full sm:w-auto overflow-x-auto">
                       <button
                         onClick={() => setDeliveryNoteSubTab('preview')}
                         className={cn(
-                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2",
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap",
                           deliveryNoteSubTab === 'preview' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
                         )}
                       >
@@ -3114,7 +3234,7 @@ export default function App() {
                       <button
                         onClick={() => setDeliveryNoteSubTab('history')}
                         className={cn(
-                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2",
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap",
                           deliveryNoteSubTab === 'history' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
                         )}
                       >
@@ -3122,44 +3242,56 @@ export default function App() {
                       </button>
                     </div>
                   </div>
-                  <div className="flex gap-3">
-                    <div className="relative">
+                  <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
+                    <div className="relative flex-1 sm:flex-none">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                       <input
                         type="text"
-                        placeholder="Tìm kiếm lệnh xuất..."
+                        placeholder="Tìm kiếm..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10 pr-4 py-2 border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-64"
+                        className="pl-10 pr-4 py-2 border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-full sm:w-64"
                       />
                     </div>
                     {deliveryNoteSubTab === 'preview' && (
-                      <>
+                      <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                         <button 
                           onClick={autoAssignLotsFromUI}
-                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-blue-700 transition-colors"
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-blue-700 transition-colors"
                           title="Tự động tìm và gán Lot No cho toàn bộ danh sách hiện tại"
                         >
                           <Package size={14} />
-                          Gắn Lot tự động
+                          <span className="hidden md:inline">Gắn Lot tự động</span>
                         </button>
                         <button 
                           onClick={handlePostDeliveryNote}
-                          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-green-700 transition-colors"
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-green-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-green-700 transition-colors"
                         >
                           <CheckSquare size={14} />
-                          Post xuất kho
+                          <span className="hidden md:inline">Post xuất kho</span>
                         </button>
                         <button 
                           onClick={() => {
                             window.print();
                           }}
-                          className="flex items-center gap-2 px-4 py-2 border border-[#141414] text-[10px] font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 border border-[#141414] text-[10px] font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
                         >
                           <Printer size={14} />
-                          In phiếu
+                          <span className="hidden md:inline">In phiếu</span>
                         </button>
-                      </>
+                        {selectedRows.length > 0 && (
+                          <button
+                            onClick={() => {
+                              setDeleteTarget({ id: 'bulk', type: 'savedDeliveryNote' });
+                              setIsDeleteConfirmOpen(true);
+                            }}
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-red-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-red-700 transition-colors"
+                          >
+                            <Trash2 size={14} />
+                            <span className="hidden md:inline">Xóa</span> ({selectedRows.length})
+                          </button>
+                        )}
+                      </div>
                     )}
                     {deliveryNoteSubTab === 'preview' && (
                       <button 
@@ -3368,15 +3500,15 @@ export default function App() {
                 </div>
 
                 {deliveryNoteSubTab === 'preview' && (
-                  <div className="bg-white border border-[#141414] p-8 shadow-sm">
+                  <div className="bg-white border border-[#141414] p-4 sm:p-8 shadow-sm">
                   <div className="flex justify-center items-start mb-8">
                     <div className="text-center flex-1">
-                      <h1 className="text-xl font-bold uppercase tracking-widest">Phiếu giao nhận Fabric</h1>
-                      <p className="text-sm italic">Delivery Note</p>
+                      <h1 className="text-lg sm:text-xl font-bold uppercase tracking-widest">Phiếu giao nhận Fabric</h1>
+                      <p className="text-xs sm:text-sm italic">Delivery Note</p>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-x-12 gap-y-2 mb-8 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-2 mb-8 text-[10px] sm:text-xs">
                     <div className="grid grid-cols-3 border-b border-gray-200 py-1">
                       <span className="font-bold">Mã Tài Liệu:</span>
                       <input 
@@ -3419,6 +3551,24 @@ export default function App() {
                     <table className="w-full border-collapse min-w-[1800px]">
                       <thead className="sticky top-0 z-10 shadow-sm">
                         <tr className="bg-[#001F3F] text-white text-[10px] uppercase tracking-wider">
+                          <th className="border border-[#141414] p-2 text-center w-10 no-print">
+                            <button 
+                              onClick={() => {
+                                if (selectedRows.length === filteredDeliveryNotes.length) {
+                                  setSelectedRows([]);
+                                } else {
+                                  setSelectedRows(filteredDeliveryNotes.map(i => i.id));
+                                }
+                              }}
+                              className="p-1 hover:bg-white/10 rounded transition-colors"
+                            >
+                              {selectedRows.length === filteredDeliveryNotes.length && filteredDeliveryNotes.length > 0 ? (
+                                <CheckSquare size={14} />
+                              ) : (
+                                <Square size={14} />
+                              )}
+                            </button>
+                          </th>
                           <th className="border border-[#141414] p-2 text-center w-12">No</th>
                           <th className="border border-[#141414] p-2 text-left">OVN Sale Order</th>
                           <th className="border border-[#141414] p-2 text-left">OVN Production Order</th>
@@ -3505,9 +3655,28 @@ export default function App() {
                                 className={cn(
                                   "text-[11px] transition-colors",
                                   !item.noCode ? "bg-yellow-200 text-red-600 font-bold" : "bg-white hover:bg-gray-50",
-                                  hasMismatch ? "bg-red-100 text-red-700" : ""
+                                  hasMismatch ? "bg-red-100 text-red-700" : "",
+                                  selectedRows.includes(item.id) && "bg-blue-50"
                                 )}
                               >
+                                <td className="border border-[#141414] p-2 text-center no-print">
+                                  <button 
+                                    onClick={() => {
+                                      if (selectedRows.includes(item.id)) {
+                                        setSelectedRows(selectedRows.filter(id => id !== item.id));
+                                      } else {
+                                        setSelectedRows([...selectedRows, item.id]);
+                                      }
+                                    }}
+                                    className="p-1 hover:bg-gray-100 rounded transition-colors"
+                                  >
+                                    {selectedRows.includes(item.id) ? (
+                                      <CheckSquare size={14} className="text-[#141414]" />
+                                    ) : (
+                                      <Square size={14} className="text-gray-400" />
+                                    )}
+                                  </button>
+                                </td>
                                 <td className="border border-[#141414] p-2 text-center font-bold">{item.no}</td>
                                 <td className="border border-[#141414] p-2">{item.ovnSaleOrder}</td>
                                 <td className={cn(
@@ -3599,12 +3768,12 @@ export default function App() {
                                     <div className="flex flex-col gap-1">
                                       {item.assignedLots.map((lot, idx) => (
                                         <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
-                                          {lot.location}
+                                          {getLocationByItemAndLot(item.item, lot.lotNo)}
                                         </div>
                                       ))}
                                     </div>
                                   ) : (
-                                    item.location
+                                    getLocationByItemAndLot(item.item, item.lotNo)
                                   )}
                                 </td>
                                 {isFirstInItemGroup ? (
@@ -3759,17 +3928,17 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
               >
-                <div className="flex justify-between items-center no-print">
-                  <div className="flex items-center gap-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6 w-full">
                     <h2 className="font-serif italic text-2xl">Quản lý Vị Trí</h2>
-                    <div className="flex border-b border-gray-200">
+                    <div className="flex border-b border-gray-200 w-full sm:w-auto overflow-x-auto">
                       <button
                         onClick={() => {
                           setLocationSubTab('input');
                           setScanMode('INPUT');
                         }}
                         className={cn(
-                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2",
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap",
                           locationSubTab === 'input' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
                         )}
                       >
@@ -3781,7 +3950,7 @@ export default function App() {
                           setScanMode('OUTPUT');
                         }}
                         className={cn(
-                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2",
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap",
                           locationSubTab === 'output' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
                         )}
                       >
@@ -3790,25 +3959,25 @@ export default function App() {
                       <button
                         onClick={() => setLocationSubTab('inventory')}
                         className={cn(
-                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2",
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap",
                           locationSubTab === 'inventory' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
                         )}
                       >
                         TỒN VỊ TRÍ
                       </button>
                     </div>
-                    <div className="relative ml-4">
+                    <div className="relative w-full sm:w-auto">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
                       <input 
                         type="text" 
-                        placeholder="Tìm kiếm vị trí, mã hàng..."
+                        placeholder="Tìm kiếm..."
                         value={locationSearch}
                         onChange={(e) => setLocationSearch(e.target.value)}
-                        className="pl-9 pr-4 py-2 bg-white border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-64"
+                        className="pl-9 pr-4 py-2 bg-white border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-full sm:w-64"
                       />
                     </div>
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
                     <button 
                       onClick={() => {
                         setEditingId(null);
@@ -3820,23 +3989,23 @@ export default function App() {
                         }
                         setIsLocationModalOpen(true);
                       }}
-                      className="flex items-center gap-2 px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
                     >
                       <Plus size={14} />
-                      Thêm vị trí
+                      <span className="hidden sm:inline">Thêm vị trí</span>
                     </button>
-                    <button onClick={handleExportLocations} className="flex items-center gap-2 px-6 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"><Download size={14} />Xuất Excel</button>
+                    <button onClick={handleExportLocations} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"><Download size={14} /><span className="hidden sm:inline">Xuất Excel</span></button>
                     <button 
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center gap-2 px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
                     >
                       <FileUp size={14} />
-                      Nhập Excel {locationSubTab === 'inventory' ? '(Sheet 3)' : ''}
+                      <span className="hidden sm:inline">Nhập Excel</span>
                     </button>
                     {selectedRows.length > 0 && (
                       <button 
                         onClick={handleBulkDelete}
-                        className="flex items-center gap-2 px-6 py-2 bg-red-600 text-white text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
                       >
                         <Trash2 size={14} />
                         Xóa ({selectedRows.length})
@@ -3847,7 +4016,7 @@ export default function App() {
 
                 {(locationSubTab === 'input' || locationSubTab === 'output') && (
                   <div className="bg-white border border-[#141414] p-4 space-y-4 no-print">
-                    <div className="flex items-center gap-8">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <h3 className="text-xs font-bold uppercase tracking-widest flex items-center gap-2">
                         <MapPin size={14} />
                         Scan / Dán dữ liệu nhanh
@@ -3855,7 +4024,7 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setScanMode('INPUT')}
-                          className={`px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all border border-[#141414] ${
+                          className={`flex-1 sm:flex-none px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all border border-[#141414] ${
                             scanMode === 'INPUT' 
                               ? 'bg-blue-600 text-white opacity-100' 
                               : 'bg-white text-blue-600 opacity-30 hover:opacity-50'
@@ -3865,7 +4034,7 @@ export default function App() {
                         </button>
                         <button
                           onClick={() => setScanMode('OUTPUT')}
-                          className={`px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all border border-[#141414] ${
+                          className={`flex-1 sm:flex-none px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all border border-[#141414] ${
                             scanMode === 'OUTPUT' 
                               ? 'bg-red-600 text-white opacity-100' 
                               : 'bg-white text-red-600 opacity-30 hover:opacity-50'
@@ -3875,7 +4044,7 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-                    <div className="flex gap-4">
+                    <div className="flex flex-col sm:flex-row gap-4">
                       <textarea 
                         value={scanInput}
                         onChange={(e) => setScanInput(e.target.value)}
@@ -3885,7 +4054,7 @@ export default function App() {
                       <button 
                         onClick={handleProcessScanInput}
                         disabled={!scanInput.trim()}
-                        className="px-8 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50 flex flex-col items-center justify-center gap-2"
+                        className="py-4 sm:py-0 sm:px-8 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50 flex flex-row sm:flex-col items-center justify-center gap-2"
                       >
                         <Save size={20} />
                         Cập nhật
@@ -4143,7 +4312,7 @@ export default function App() {
                     placeholder="Nhập hoặc dán mã QR..."
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold opacity-50">Mã Hàng</label>
                     <input 
@@ -4165,7 +4334,7 @@ export default function App() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold opacity-50">Ngày</label>
                     <input 
@@ -4221,7 +4390,7 @@ export default function App() {
                 {editingId ? 'Chỉnh sửa sản phẩm' : 'Thêm sản phẩm mới'}
               </h3>
               <form onSubmit={handleAddProduct} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold opacity-50">Mã Hàng (SKU)</label>
                     <input 
@@ -4250,7 +4419,7 @@ export default function App() {
                     onChange={e => setNewProduct({...newProduct, name: e.target.value})}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold opacity-50">Lot no</label>
                     <input 
@@ -4268,7 +4437,7 @@ export default function App() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold opacity-50">Mã chỉ định</label>
                     <input 
@@ -4343,7 +4512,7 @@ export default function App() {
                     ))}
                   </select>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold opacity-50">Số lượng</label>
                     <input 
@@ -4464,7 +4633,7 @@ export default function App() {
             >
               <h3 className="font-serif italic text-2xl">Chỉnh sửa dòng lệnh xuất</h3>
               <form onSubmit={saveDeliveryNoteItemEdit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold opacity-50">Mã hàng</label>
                     <input 
@@ -4482,7 +4651,7 @@ export default function App() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold opacity-50">RPRO (OVN Production Order)</label>
                     <input 
@@ -4500,7 +4669,7 @@ export default function App() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold opacity-50">Qty ERP</label>
                     <input 
@@ -4528,7 +4697,7 @@ export default function App() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold opacity-50">Remark</label>
                     <input 

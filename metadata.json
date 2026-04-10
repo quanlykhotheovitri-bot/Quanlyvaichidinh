@@ -1,5 +1,5 @@
 {
   "name": "QUẢN LÝ KHO ",
-  "description": "Ứng dụng quản lý nhập kho, xuất kho, tồn kho và vị trí hàng hóa với Supabase.",
+  "description": "Ứng dụng quản lý nhập kho, xuất kho, tồn kho, vị trí hàng hóa và phiếu giao nhận Fabric với giao diện phản hồi linh hoạt (responsive).",
   "requestFramePermissions": []
 }
