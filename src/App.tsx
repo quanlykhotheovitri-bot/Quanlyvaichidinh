@@ -1754,6 +1754,796 @@ export default function App() {
     );
   }, [deliveryNotes, searchQuery]);
 
+  const processData = (data: any[]) => {
+    const normalizeKey = (key: string) => {
+      return key.toLowerCase().trim()
+        .replace(/\s+/g, ''); // Remove all spaces, keep dots
+    };
+
+    if (activeTab === 'inventory') {
+      setProducts(prev => {
+        const updatedProducts = [...prev];
+        const skuToProductIndex = new Map(updatedProducts.map((p, i) => [p.sku, i]));
+
+        let currentProductSku = '';
+        let currentProductName = '';
+
+        data.forEach((row) => {
+          const normalizedRow: any = {};
+          Object.keys(row).forEach(key => {
+            normalizedRow[normalizeKey(key)] = row[key];
+          });
+
+          let sku = String(
+            normalizedRow['sku'] || 
+            normalizedRow['mãhàng'] || 
+            normalizedRow['mãhànghóa'] ||
+            normalizedRow['mãhh'] ||
+            normalizedRow['mãsp'] || 
+            normalizedRow['mãsảnphẩm'] || 
+            normalizedRow['mãvậttư'] ||
+            normalizedRow['itemno'] ||
+            normalizedRow['itemcode'] ||
+            normalizedRow['mã'] ||
+            normalizedRow['item'] ||
+            row.sku || row.SKU || row['Mã Hàng'] || ''
+          ).trim();
+
+          if (!sku) {
+            if (currentProductSku) {
+              sku = currentProductSku;
+            } else {
+              return;
+            }
+          } else {
+            currentProductSku = sku;
+          }
+
+          let name = String(
+            normalizedRow['name'] || 
+            normalizedRow['tênhàng'] || 
+            normalizedRow['tênhànghóa'] ||
+            normalizedRow['tênhh'] ||
+            normalizedRow['tênsp'] || 
+            normalizedRow['tênsảnphẩm'] || 
+            normalizedRow['tênvậttư'] ||
+            normalizedRow['productname'] || 
+            normalizedRow['itemname'] ||
+            normalizedRow['description'] ||
+            normalizedRow['môtả'] ||
+            normalizedRow['tên'] ||
+            row.name || row.Name || row['Tên hàng'] || ''
+          ).trim();
+
+          if (!name && currentProductName) {
+            name = currentProductName;
+          } else if (name) {
+            currentProductName = name;
+          }
+          if (!name) name = 'Sản phẩm mới';
+
+          const rowLot = normalizedRow['lotno'] !== undefined ? String(normalizedRow['lotno']).trim() : 
+                        (normalizedRow['lotno.'] !== undefined ? String(normalizedRow['lotno.']).trim() : undefined);
+          const rowGhiChu = normalizedRow['ghichu'] !== undefined ? String(normalizedRow['ghichu']).trim() : 
+                           (normalizedRow['ghichú'] !== undefined ? String(normalizedRow['ghichú']).trim() : undefined);
+          const rowDesignation = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).replace(/\s+/g, '') : 
+                                (normalizedRow['mãchỉđịnh'] !== undefined ? String(normalizedRow['mãchỉđịnh']).replace(/\s+/g, '') : undefined);
+          const rowLoai = normalizedRow['loaichidinh'] !== undefined ? String(normalizedRow['loaichidinh']).trim() : 
+                         (normalizedRow['loạichỉđịnh'] !== undefined ? String(normalizedRow['loạichỉđịnh']).trim() : undefined);
+
+          const existingIndex = skuToProductIndex.get(sku);
+          const productData: Product = {
+            id: existingIndex !== undefined ? updatedProducts[existingIndex].id : generateId(),
+            sku: sku,
+            name: name === '' ? 'Sản phẩm mới' : name,
+            category: normalizedRow['category'] || normalizedRow['loại'] || row.category || row.Category || 'Chưa phân loại',
+            unit: normalizedRow['unit'] || normalizedRow['đơnvị'] || row.unit || row.Unit || 'Cái',
+            minStock: Number(normalizedRow['minstock'] || normalizedRow['tồntốithiểu'] || row.minStock || row.MinStock || 0),
+            lotNo: rowLot ?? (existingIndex !== undefined ? updatedProducts[existingIndex].lotNo : ''),
+            ghiChu: rowGhiChu ?? (existingIndex !== undefined ? updatedProducts[existingIndex].ghiChu : ''),
+            designationCode: rowDesignation ?? (existingIndex !== undefined ? updatedProducts[existingIndex].designationCode : ''),
+            loaiChiDinh: rowLoai ?? (existingIndex !== undefined ? updatedProducts[existingIndex].loaiChiDinh : '')
+          };
+
+          if (existingIndex !== undefined) {
+            updatedProducts[existingIndex] = productData;
+          } else {
+            skuToProductIndex.set(sku, updatedProducts.length);
+            updatedProducts.push(productData);
+          }
+        });
+        api.products.upsertAll(updatedProducts).catch(err => console.error('Error syncing products:', err));
+        return updatedProducts;
+      });
+    } else if (activeTab === 'inbound' || activeTab === 'outbound') {
+      setProducts(prevProducts => {
+        const updatedProducts = [...prevProducts];
+        const newProductsToAdd: Product[] = [];
+        const skuToProductIndex = new Map(updatedProducts.map((p, i) => [p.sku, i]));
+        const skuToNewProductIndex = new Map<string, number>();
+
+        let currentProductSku = '';
+        let currentProductName = '';
+
+        data.forEach((row) => {
+          const normalizedRow: any = {};
+          Object.keys(row).forEach(key => {
+            normalizedRow[normalizeKey(key)] = row[key];
+          });
+
+          let sku = String(
+            normalizedRow['sku'] || 
+            normalizedRow['mãhàng'] || 
+            normalizedRow['mãhànghóa'] ||
+            normalizedRow['mãhh'] ||
+            normalizedRow['mãsp'] || 
+            normalizedRow['mãsảnphẩm'] || 
+            normalizedRow['mãvậttư'] ||
+            normalizedRow['itemno'] ||
+            normalizedRow['itemcode'] ||
+            normalizedRow['mã'] ||
+            normalizedRow['item'] ||
+            row.sku || row.SKU || row['Mã Hàng'] || ''
+          ).trim();
+
+          if (!sku) {
+            if (currentProductSku) {
+              sku = currentProductSku;
+            } else {
+              return;
+            }
+          } else {
+            currentProductSku = sku;
+          }
+
+          let name = String(
+            normalizedRow['name'] || 
+            normalizedRow['tênhàng'] || 
+            normalizedRow['tênhànghóa'] ||
+            normalizedRow['tênhh'] ||
+            normalizedRow['tênsp'] || 
+            normalizedRow['tênsảnphẩm'] || 
+            normalizedRow['tênvậttư'] ||
+            normalizedRow['productname'] || 
+            normalizedRow['itemname'] ||
+            normalizedRow['description'] ||
+            normalizedRow['môtả'] ||
+            normalizedRow['tên'] ||
+            row.name || row.Name || row['Tên hàng'] || ''
+          ).trim();
+
+          if (!name && currentProductName) {
+            name = currentProductName;
+          } else if (name) {
+            currentProductName = name;
+          }
+
+          const designationCode = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).trim() : 
+                                (normalizedRow['mãchỉđịnh'] !== undefined ? String(normalizedRow['mãchỉđịnh']).trim() : undefined);
+
+          const loaiChiDinh = normalizedRow['loaichidinh'] !== undefined ? String(normalizedRow['loaichidinh']).trim() : 
+                             (normalizedRow['loạichỉđịnh'] !== undefined ? String(normalizedRow['loạichỉđịnh']).trim() : undefined);
+
+          const ghiChu = normalizedRow['ghichu'] !== undefined ? String(normalizedRow['ghichu']).trim() : 
+                        (normalizedRow['ghichú'] !== undefined ? String(normalizedRow['ghichú']).trim() : undefined);
+
+          const lotNo = normalizedRow['lotno'] !== undefined ? String(normalizedRow['lotno']).trim() : 
+                       (normalizedRow['lotno.'] !== undefined ? String(normalizedRow['lotno.']).trim() : undefined);
+
+          const existingIndex = skuToProductIndex.get(sku);
+          const alreadyInNewIndex = skuToNewProductIndex.get(sku);
+          
+          if (existingIndex !== undefined) {
+            if (name && updatedProducts[existingIndex].name !== name && name !== 'Sản phẩm mới') {
+              updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], name };
+            }
+            if (designationCode !== undefined && updatedProducts[existingIndex].designationCode !== designationCode) {
+              updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], designationCode };
+            }
+            if (loaiChiDinh !== undefined && updatedProducts[existingIndex].loaiChiDinh !== loaiChiDinh) {
+              updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], loaiChiDinh };
+            }
+            if (ghiChu !== undefined && updatedProducts[existingIndex].ghiChu !== ghiChu) {
+              updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], ghiChu };
+            }
+          } else if (alreadyInNewIndex !== undefined) {
+            if (name && newProductsToAdd[alreadyInNewIndex].name === 'Sản phẩm mới' && name !== 'Sản phẩm mới') {
+              newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], name };
+            }
+            if (designationCode !== undefined && newProductsToAdd[alreadyInNewIndex].designationCode === '') {
+              newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], designationCode };
+            }
+            if (loaiChiDinh !== undefined && (!newProductsToAdd[alreadyInNewIndex].loaiChiDinh || newProductsToAdd[alreadyInNewIndex].loaiChiDinh === '')) {
+              newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], loaiChiDinh };
+            }
+            if (ghiChu !== undefined && newProductsToAdd[alreadyInNewIndex].ghiChu === '') {
+              newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], ghiChu };
+            }
+          } else {
+            const newProductIndex = newProductsToAdd.length;
+            skuToNewProductIndex.set(sku, newProductIndex);
+            newProductsToAdd.push({
+              id: generateId(),
+              sku: sku,
+              name: name || 'Sản phẩm mới',
+              category: normalizedRow['category'] || normalizedRow['loại'] || 'Tự động tạo',
+              unit: normalizedRow['unit'] || normalizedRow['đơnvị'] || 'Cái',
+              minStock: 0,
+              lotNo: lotNo || '',
+              ghiChu: ghiChu || '',
+              designationCode: designationCode || '',
+              loaiChiDinh: loaiChiDinh || ''
+            });
+          }
+        });
+
+        const finalProducts = [...updatedProducts, ...newProductsToAdd];
+        const finalProductsMap = new Map(finalProducts.map(p => [p.sku, p]));
+
+        let currentSkuForTransaction = '';
+
+        const newTransactions: Transaction[] = data.map((row) => {
+          const normalizedRow: any = {};
+          Object.keys(row).forEach(key => {
+            normalizedRow[normalizeKey(key)] = row[key];
+          });
+
+          let sku = String(
+            normalizedRow['sku'] || 
+            normalizedRow['mãhàng'] || 
+            normalizedRow['mãhànghóa'] ||
+            normalizedRow['mãhh'] ||
+            normalizedRow['mãsp'] || 
+            normalizedRow['mãsảnphẩm'] || 
+            normalizedRow['mãvậttư'] ||
+            normalizedRow['itemno'] ||
+            normalizedRow['itemcode'] ||
+            normalizedRow['mã'] ||
+            normalizedRow['item'] ||
+            row.sku || row.SKU || row['Mã Hàng'] || ''
+          ).trim();
+
+          if (!sku) {
+            if (currentSkuForTransaction) {
+              sku = currentSkuForTransaction;
+            } else {
+              return null;
+            }
+          } else {
+            currentSkuForTransaction = sku;
+          }
+
+          const product = finalProductsMap.get(sku);
+          if (!product) return null;
+
+          const rawDate = normalizedRow['date'] || normalizedRow['ngày'] || normalizedRow['ngàynhập'] || normalizedRow['ngàyxuất'] || row.date || row.Date || row['Ngày nhập'] || row['Ngày xuất'];
+          let formattedDate = format(new Date(), 'dd/MM/yyyy');
+          
+          if (rawDate) {
+            if (typeof rawDate === 'number') {
+              const date = XLSX.SSF.parse_date_code(rawDate);
+              formattedDate = format(new Date(date.y, date.m - 1, date.d), 'dd/MM/yyyy');
+            } else {
+              formattedDate = String(rawDate).trim();
+            }
+          }
+
+          const rowLoai = normalizedRow['loaichidinh'] !== undefined ? String(normalizedRow['loaichidinh']).trim() : 
+                         (normalizedRow['loạichỉđịnh'] !== undefined ? String(normalizedRow['loạichỉđịnh']).trim() : undefined);
+          const rowLot = normalizedRow['lotno'] !== undefined ? String(normalizedRow['lotno']).trim() : 
+                        (normalizedRow['lotno.'] !== undefined ? String(normalizedRow['lotno.']).trim() : undefined);
+          const rowGhiChu = normalizedRow['ghichu'] !== undefined ? String(normalizedRow['ghichu']).trim() : 
+                           (normalizedRow['ghichú'] !== undefined ? String(normalizedRow['ghichú']).trim() : undefined);
+          const rowDesignation = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).replace(/\s+/g, '') : 
+                                (normalizedRow['mãchỉđịnh'] !== undefined ? String(normalizedRow['mãchỉđịnh']).replace(/\s+/g, '') : undefined);
+
+          return {
+            id: generateId(),
+            productId: product.id,
+            type: activeTab as 'inbound' | 'outbound',
+            quantity: Number(normalizedRow['quantity'] || normalizedRow['sốlượng'] || normalizedRow['sốlượngnhập'] || normalizedRow['sốlượngxuất'] || row.quantity || row.Quantity || row['Số lượng nhập'] || row['Số lượng xuất'] || 0),
+            date: formattedDate,
+            partner: normalizedRow['partner'] || normalizedRow['đốitác'] || normalizedRow['kháchhàng'] || normalizedRow['nhàcungcấp'] || row.partner || row.Partner || 'N/A',
+            loaiChiDinh: rowLoai ?? '',
+            lotNo: rowLot ?? product?.lotNo ?? '',
+            ghiChu: rowGhiChu ?? product?.ghiChu ?? '',
+            designationCode: rowDesignation ?? product?.designationCode ?? ''
+          };
+        }).filter(Boolean) as Transaction[];
+
+        if (newTransactions.length > 0) {
+          setTransactions(prev => [...prev, ...newTransactions]);
+          api.transactions.upsertAll(newTransactions).catch(err => console.error('Error syncing transactions:', err));
+        }
+
+        api.products.upsertAll(finalProducts).catch(err => console.error('Error syncing products:', err));
+        return finalProducts;
+      });
+    } else if (activeTab === 'customers') {
+      setCustomers(prev => {
+        const newCustomers: Customer[] = [];
+        const currentCustomers = [...prev];
+        
+        data.forEach((row, index) => {
+          const normalizedRow: any = {};
+          Object.keys(row).forEach(key => {
+            normalizedRow[key.toLowerCase().trim()] = row[key];
+          });
+
+          const code = String(
+            normalizedRow['code'] || 
+            normalizedRow['mã'] || 
+            normalizedRow['mã khách hàng'] || 
+            normalizedRow['mã kh'] || 
+            normalizedRow['customer code'] || 
+            normalizedRow['cust code'] ||
+            row['Code'] || row['code'] || row['Mã'] || ''
+          ).trim();
+          
+          const name = String(
+            normalizedRow['name'] || 
+            normalizedRow['tên'] || 
+            normalizedRow['tên khách hàng'] || 
+            normalizedRow['tên kh'] || 
+            normalizedRow['customer name'] || 
+            normalizedRow['cust name'] ||
+            row['Name'] || row['name'] || row['Tên'] || ''
+          ).trim();
+          
+          if (code && name) {
+            const existsInCurrent = currentCustomers.find(c => 
+              c.code.toLowerCase() === code.toLowerCase() && 
+              c.name.toLowerCase() === name.toLowerCase()
+            );
+            const existsInNew = newCustomers.find(c => 
+              c.code.toLowerCase() === code.toLowerCase() && 
+              c.name.toLowerCase() === name.toLowerCase()
+            );
+            
+            if (!existsInCurrent && !existsInNew) {
+              newCustomers.push({
+                id: generateId(),
+                code,
+                name
+              });
+            }
+          }
+        });
+
+        if (newCustomers.length === 0) return prev;
+        const updated = [...prev, ...newCustomers];
+        Promise.all(newCustomers.map(c => api.customers.upsert(c))).catch(err => console.error('Error syncing customers:', err));
+        return updated;
+      });
+    }
+  };
+
+  const parseQRCode = (qrcode: string) => {
+    if (!qrcode) return null;
+    
+    // Clean trailing hyphen from the whole string if it exists
+    let cleanQRCode = qrcode.trim();
+    if (cleanQRCode.endsWith('-')) {
+      cleanQRCode = cleanQRCode.slice(0, -1);
+    }
+
+    const parts = cleanQRCode.split('|');
+    
+    if (parts.length < 2) {
+      let sku = cleanQRCode;
+      if (sku.endsWith('-')) sku = sku.slice(0, -1);
+      return { sku, partner: '', date: '' };
+    }
+    
+    let sku = parts[0].trim();
+    if (sku.endsWith('-')) {
+      sku = sku.slice(0, -1);
+    }
+    
+    const rest = parts[1].trim();
+    const restParts = rest.split('-');
+    
+    const partner = restParts[0] || '';
+    let date = restParts[1] || '';
+    
+    if (date && date.includes('/')) {
+      const dateParts = date.split('/');
+      if (dateParts[2] && dateParts[2].length === 2) {
+        dateParts[2] = '20' + dateParts[2];
+        date = dateParts.join('/');
+      }
+    }
+    
+    return { sku, partner, date };
+  };
+
+  const processLocationStockSheet = (sheetData: any[][]) => {
+    let currentSection: 'INPUT' | 'OUTPUT' | null = null;
+    const inputEntries: any[] = [];
+    const outputQRCodes: Set<string> = new Set();
+
+    sheetData.forEach(row => {
+      if (!row || row.length === 0) return;
+      const firstCell = String(row[0] || '').trim().toUpperCase();
+      
+      if (firstCell === 'INPUT') {
+        currentSection = 'INPUT';
+        return;
+      }
+      if (firstCell === 'OUTPUT') {
+        currentSection = 'OUTPUT';
+        return;
+      }
+
+      if (currentSection === 'INPUT') {
+        const qrcode = String(row[0] || '').trim();
+        if (qrcode && qrcode !== 'QRCODE') {
+          const parsed = parseQRCode(qrcode);
+          inputEntries.push({
+            qrcode,
+            sku: String(row[1] || '').trim() || parsed?.sku || '',
+            partner: String(row[2] || '').trim() || parsed?.partner || '',
+            date: String(row[3] || '').trim() || parsed?.date || '',
+            note: String(row[4] || '').trim(),
+            location: String(row[5] || '').trim(),
+            quantity: parseInt(String(row[6] || '1')) || 1
+          });
+        }
+      } else if (currentSection === 'OUTPUT') {
+        const qrcode = String(row[0] || '').trim();
+        if (qrcode && qrcode !== 'QRCODE') {
+          outputQRCodes.add(qrcode);
+        }
+      }
+    });
+
+    const filtered = inputEntries.filter(entry => !outputQRCodes.has(entry.qrcode));
+    
+    const grouped = new Map<string, any>();
+    filtered.forEach(entry => {
+      const key = `${entry.qrcode}|${entry.location}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, { ...entry });
+      } else {
+        const existing = grouped.get(key);
+        if (!existing.sku) existing.sku = entry.sku;
+        if (!existing.partner) existing.partner = entry.partner;
+        if (!existing.date) existing.date = entry.date;
+        if (!existing.note) existing.note = entry.note;
+        existing.quantity = (existing.quantity || 0) + (entry.quantity || 0);
+      }
+    });
+
+    return {
+      entries: Array.from(grouped.values()),
+      outputQRCodes: Array.from(outputQRCodes)
+    };
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const fileName = file.name.toLowerCase();
+    
+    if (fileName.endsWith('.csv')) {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          if (activeTab === 'deliveryNote') {
+            processDeliveryNoteData(results.data);
+          } else if (activeTab === 'customers') {
+            processCustomerData(results.data);
+          } else if (activeTab === 'location') {
+            processLocationData(results.data);
+          } else {
+            processData(results.data);
+          }
+          if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+      });
+    } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.xlsm')) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        
+        if (activeTab === 'location' && locationSubTab === 'inventory') {
+          const sheetName = workbook.SheetNames[2] || workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const sheetData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+          const { entries: processedData, outputQRCodes } = processLocationStockSheet(sheetData);
+          
+          const newEntries: LocationEntry[] = processedData.map((item, index) => ({
+            id: generateId(),
+            ...item,
+            type: 'inventory'
+          }));
+          
+          setLocationInventoryEntries(prev => {
+            const grouped = new Map<string, LocationEntry>();
+            prev.forEach(entry => {
+              const key = `${entry.qrcode}|${entry.location || ''}`;
+              if (!outputQRCodes.includes(entry.qrcode)) {
+                grouped.set(key, { ...entry });
+              }
+            });
+            
+            newEntries.forEach(entry => {
+              const key = `${entry.qrcode}|${entry.location || ''}`;
+              if (grouped.has(key)) {
+                const existing = grouped.get(key)!;
+                if (!existing.sku) existing.sku = entry.sku;
+                if (!existing.partner) existing.partner = entry.partner;
+                if (!existing.date) existing.date = entry.date;
+                if (!existing.note) existing.note = entry.note;
+                existing.quantity = (existing.quantity || 0) + (entry.quantity || 0);
+              } else {
+                grouped.set(key, entry);
+              }
+            });
+            
+            const finalEntries = Array.from(grouped.values());
+            
+            (async () => {
+              try {
+                const entriesToDelete = prev.filter(e => outputQRCodes.includes(e.qrcode));
+                if (entriesToDelete.length > 0) {
+                  await Promise.all(entriesToDelete.map(e => api.locationEntries.delete(e.id)));
+                }
+                if (finalEntries.length > 0) {
+                  await api.locationEntries.upsertAll(finalEntries);
+                }
+              } catch (error) {
+                console.error('Error syncing Excel location data:', error);
+              }
+            })();
+
+            return finalEntries;
+          });
+        } else {
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          
+          if (activeTab === 'deliveryNote') {
+            processDeliveryNoteData(jsonData);
+          } else if (activeTab === 'customers') {
+            processCustomerData(jsonData);
+          } else if (activeTab === 'location') {
+            processLocationData(jsonData);
+          } else {
+            processData(jsonData);
+          }
+        }
+        
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  };
+
+  const processDeliveryNoteData = (data: any[]) => {
+    const normalizeKey = (key: string) => {
+      return key.toLowerCase().trim()
+        .replace(/\s+/g, '');
+    };
+
+    const mappedData: DeliveryNoteItem[] = data.map((row, index) => {
+      const normalizedRow: any = {};
+      Object.keys(row).forEach(key => {
+        normalizedRow[normalizeKey(key)] = row[key];
+      });
+
+      const itemNo = String(
+        normalizedRow['itemno'] || 
+        normalizedRow['item'] || 
+        normalizedRow['mãhàng'] ||
+        row['Item No.'] || row['item'] || row['ITEM'] || ''
+      ).trim();
+
+      const ovnSaleOrder = String(
+        normalizedRow['ovnsaleorder'] || 
+        row['OVN Sale Order'] || ''
+      ).trim();
+
+      const ovnProductionOrder = String(
+        normalizedRow['ovnproductionorder'] || 
+        row['OVN Production Order'] || ''
+      ).trim();
+
+      const qtyErp = Number(
+        normalizedRow['quantity'] || 
+        normalizedRow['qtyerp'] || 
+        normalizedRow['sốlượng'] ||
+        row['Quantity'] || row['Qty ERP'] || 0
+      );
+      
+      const noValue = String(
+        normalizedRow['no.'] || 
+        normalizedRow['no'] || 
+        row['No.'] || row['NO.'] || row['No'] || row['NO'] || ''
+      ).trim();
+
+      const loaiChiDinh = String(
+        normalizedRow['loaichidinh'] || 
+        normalizedRow['loạichỉđịnh'] || 
+        row['Loại chỉ định'] || ''
+      ).trim().toUpperCase();
+
+      const materialName = String(
+        normalizedRow['materialname'] || 
+        normalizedRow['tênhàng'] ||
+        normalizedRow['ovnfullname'] ||
+        row['Material Name'] || row['OVN Full Name'] || ''
+      ).trim();
+
+      const unit = String(
+        normalizedRow['unit'] || 
+        normalizedRow['đơnvị'] ||
+        row['Unit'] || 'YDS'
+      ).trim();
+
+      const brand = String(
+        normalizedRow['brand'] || 
+        normalizedRow['brandcode'] ||
+        row['Brand'] || row['Brand Code'] || ''
+      ).trim();
+
+      const customerCode = String(
+        normalizedRow['customercode'] || 
+        normalizedRow['mãkháchhàng'] || 
+        normalizedRow['selltocustomername'] ||
+        row['Customer code'] || row['Sell-to Customer Name'] || ''
+      ).trim();
+
+      let finalNoCode = noValue;
+      if (!finalNoCode && customerCode) {
+        const foundCustomer = customers.find(c => 
+          c.name.toLowerCase() === customerCode.toLowerCase() || 
+          c.code.toLowerCase() === customerCode.toLowerCase()
+        );
+        if (foundCustomer) {
+          finalNoCode = foundCustomer.code;
+        }
+      }
+
+      const finalDestination = String(
+        normalizedRow['finaldestination'] || 
+        normalizedRow['đến'] || 
+        row['Final Destination'] || ''
+      ).trim();
+
+      const remark = String(
+        normalizedRow['remark'] || 
+        normalizedRow['ghichú'] || 
+        row['remark'] || ''
+      ).trim();
+
+      const lotNo = String(
+        normalizedRow['lotno'] || 
+        normalizedRow['lot'] || 
+        row['Lot No'] || row['lot'] || ''
+      ).trim();
+
+      return {
+        id: generateId(),
+        no: index + 1,
+        ovnSaleOrder,
+        ovnProductionOrder,
+        item: itemNo,
+        materialName,
+        unit,
+        qtyErp,
+        actualQty: 0,
+        lotNo: lotNo,
+        actualIssuedQty: 0,
+        remark,
+        loaiChiDinh,
+        brand,
+        customerCode,
+        finalDestination,
+        noCode: finalNoCode,
+        location: getLocationByItemAndLot(itemNo, lotNo),
+        stock: ''
+      };
+    });
+
+    const finalData = mappedData.map((item, index) => ({
+      ...item,
+      no: index + 1
+    }));
+
+    // Apply rounding logic by ITEM
+    const groups = new Map<string, DeliveryNoteItem[]>();
+    finalData.forEach(item => {
+      if (!groups.has(item.item)) groups.set(item.item, []);
+      groups.get(item.item)!.push(item);
+    });
+
+    groups.forEach(items => {
+      const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
+      const targetTotal = Math.ceil(totalQtyErp);
+      const diff = targetTotal - totalQtyErp;
+      
+      let maxIdx = 0;
+      let maxVal = -1;
+      items.forEach((item, idx) => {
+        if (item.qtyErp > maxVal) {
+          maxVal = item.qtyErp;
+          maxIdx = idx;
+        }
+      });
+
+      items.forEach((item, idx) => {
+        item.actualQty = (idx === maxIdx) ? Number((item.qtyErp + diff).toFixed(4)) : item.qtyErp;
+      });
+    });
+
+    setDeliveryNotes(finalData);
+    api.deliveryNotes.upsertAll(finalData).catch(err => console.error('Error syncing delivery notes:', err));
+    showNotification(`Đã tải lên ${mappedData.length} dòng. Hãy nhấn "Gắn Lot tự động" để tìm tồn kho phù hợp.`, 'success');
+  };
+
+  const processCustomerData = (data: any[]) => {
+    setCustomers(prev => {
+      const newCustomers: Customer[] = [];
+      const currentCustomers = [...prev];
+      
+      data.forEach((row, index) => {
+        const normalizedRow: any = {};
+        Object.keys(row).forEach(key => {
+          normalizedRow[key.toLowerCase().trim()] = row[key];
+        });
+
+        const code = String(
+          normalizedRow['code'] || 
+          normalizedRow['mã'] || 
+          normalizedRow['mã khách hàng'] || 
+          normalizedRow['mã kh'] || 
+          normalizedRow['customer code'] || 
+          normalizedRow['cust code'] ||
+          row['Code'] || row['code'] || row['Mã'] || ''
+        ).trim();
+        
+        const name = String(
+          normalizedRow['name'] || 
+          normalizedRow['tên'] || 
+          normalizedRow['tên khách hàng'] || 
+          normalizedRow['tên kh'] || 
+          normalizedRow['customer name'] || 
+          normalizedRow['cust name'] ||
+          row['Name'] || row['name'] || row['Tên'] || ''
+        ).trim();
+        
+        if (code && name) {
+          const existsInCurrent = currentCustomers.find(c => 
+            c.code.toLowerCase() === code.toLowerCase() && 
+            c.name.toLowerCase() === name.toLowerCase()
+          );
+          const existsInNew = newCustomers.find(c => 
+            c.code.toLowerCase() === code.toLowerCase() && 
+            c.name.toLowerCase() === name.toLowerCase()
+          );
+          
+          if (!existsInCurrent && !existsInNew) {
+            newCustomers.push({
+              id: generateId(),
+              code,
+              name
+            });
+          }
+        }
+      });
+
+      if (newCustomers.length === 0) return prev;
+      const updated = [...prev, ...newCustomers];
+      Promise.all(newCustomers.map(c => api.customers.upsert(c))).catch(err => console.error('Error syncing customers:', err));
+      return updated;
+    });
+  };
+
   const chartData = useMemo(() => {
     const dataMap: Record<string, number> = {};
     inventory.forEach(item => {
@@ -1784,13 +2574,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans flex relative">
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleFileUpload} 
-        className="hidden" 
-        accept=".csv,.xlsx,.xls,.xlsm"
-      />
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -2211,34 +2994,27 @@ export default function App() {
                         <span className="hidden sm:inline">Xóa</span> ({selectedRows.length})
                       </button>
                     )}
-                    <button 
-                      onClick={handleExportInventory}
-                      className="flex items-center gap-2 px-4 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
-                    >
+                    <button onClick={handleExportInventory}  className="flex items-center gap-2 px-4 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
                       <Download size={14} />
-                      <span className="hidden sm:inline">Xuất Excel</span>
+                      <span className="hidden sm:inline">Xuất báo cáo</span>
                     </button>
                     <button 
-                      onClick={() => {
-                        setEditingId(null);
-                        setNewProduct({ sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: '' });
-                        setIsProductModalOpen(true);
-                      }}
+                      onClick={() => setIsProductModalOpen(true)}
                       className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
                     >
                       <Plus size={14} />
-                      <span className="hidden sm:inline">Thêm mặt hàng</span>
+                      <span className="hidden sm:inline">Thêm sản phẩm</span>
                     </button>
                   </div>
                 </div>
 
                 <div className="border border-[#141414] overflow-x-auto max-h-[70vh]">
-                  <table className="w-full border-collapse min-w-[1000px]">
+                  <table className="w-full border-collapse min-w-[1200px]">
                     <thead className="sticky top-0 z-10 shadow-sm">
                       <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
                         <th className="border border-[#141414] p-3 w-10">
                           <button onClick={() => {
-                            const currentIds = filteredInventory.map(item => item.id);
+                            const currentIds = filteredInventory.map(i => i.id);
                             if (selectedRows.length === currentIds.length) setSelectedRows([]);
                             else setSelectedRows(currentIds);
                           }}>
@@ -2248,6 +3024,8 @@ export default function App() {
                         <th className="border border-[#141414] p-3 text-left">Mã Hàng</th>
                         <th className="border border-[#141414] p-3 text-left">Tên hàng</th>
                         <th className="border border-[#141414] p-3 text-left">Lot no</th>
+                        <th className="border border-[#141414] p-3 text-center bg-yellow-400 text-[#141414]">Số lượng nhập</th>
+                        <th className="border border-[#141414] p-3 text-center bg-yellow-400 text-[#141414]">Số lượng xuất</th>
                         <th className="border border-[#141414] p-3 text-center bg-yellow-400 text-[#141414]">Tồn cuối</th>
                         <th className="border border-[#141414] p-3 text-left">Loại chỉ định</th>
                         <th className="border border-[#141414] p-3 text-left">Ghi chú</th>
@@ -2273,7 +3051,9 @@ export default function App() {
                             <td className="border border-[#141414] p-3 font-mono">{item.sku}</td>
                             <td className="border border-[#141414] p-3 font-bold">{item.name}</td>
                             <td className="border border-[#141414] p-3 italic">{item.lotNo}</td>
-                            <td className="border border-[#141414] p-3 text-center font-bold">{item.currentStock.toLocaleString()}</td>
+                            <td className="border border-[#141414] p-3 text-center font-bold">{item.totalInbound}</td>
+                            <td className="border border-[#141414] p-3 text-center font-bold">{item.totalOutbound}</td>
+                            <td className="border border-[#141414] p-3 text-center font-bold text-blue-600">{item.currentStock}</td>
                             <td className="border border-[#141414] p-3 opacity-60">{item.loaiChiDinh}</td>
                             <td className="border border-[#141414] p-3">{item.ghiChu}</td>
                             <td className="border border-[#141414] p-3 font-mono">{item.designationCode}</td>
@@ -2282,7 +3062,7 @@ export default function App() {
                                 <button 
                                   onClick={() => {
                                     setEditingId(item.productId);
-                                    setNewProduct(products.find(p => p.id === item.productId) || {});
+                                    setNewProduct(item);
                                     setIsProductModalOpen(true);
                                   }}
                                   className="p-1 hover:bg-gray-200 rounded transition-colors"
@@ -2308,7 +3088,6 @@ export default function App() {
                 </div>
               </motion.div>
             )}
-
             {activeTab === 'customers' && (
               <motion.div 
                 key="customers"
@@ -2377,34 +3156,34 @@ export default function App() {
                             {selectedRows.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
                           </button>
                         </th>
-                        <th className="border border-[#141414] p-3 text-left">Mã KH</th>
-                        <th className="border border-[#141414] p-3 text-left">Tên khách hàng</th>
+                        <th className="border border-[#141414] p-3 text-left">Code</th>
+                        <th className="border border-[#141414] p-3 text-left">Name</th>
                         <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
                           Thao tác
                         </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredCustomers.map(c => {
-                        const isSelected = selectedRows.includes(c.id);
+                      {filteredCustomers.map(customer => {
+                        const isSelected = selectedRows.includes(customer.id);
                         return (
-                          <tr key={c.id} className={cn(
+                          <tr key={customer.id} className={cn(
                             "bg-white text-xs hover:bg-gray-50 transition-colors",
                             isSelected && "bg-blue-50"
                           )}>
                             <td className="border border-[#141414] p-3 text-center">
-                              <button onClick={() => toggleRowSelection(c.id)}>
+                              <button onClick={() => toggleRowSelection(customer.id)}>
                                 {isSelected ? <CheckSquare size={14} className="text-blue-600" /> : <Square size={14} />}
                               </button>
                             </td>
-                            <td className="border border-[#141414] p-3 font-mono">{c.code}</td>
-                            <td className="border border-[#141414] p-3 font-bold">{c.name}</td>
+                            <td className="border border-[#141414] p-3 font-mono">{customer.code}</td>
+                            <td className="border border-[#141414] p-3 font-bold">{customer.name}</td>
                             <td className="border border-[#141414] p-3 text-center">
                               <div className="flex items-center justify-center gap-2">
                                 <button 
                                   onClick={() => {
-                                    setEditingId(c.id);
-                                    setNewCustomer(c);
+                                    setEditingId(customer.id);
+                                    setNewCustomer(customer);
                                     setIsCustomerModalOpen(true);
                                   }}
                                   className="p-1 hover:bg-gray-200 rounded transition-colors"
@@ -2413,7 +3192,7 @@ export default function App() {
                                 </button>
                                 <button 
                                   onClick={() => {
-                                    setDeleteTarget({ id: c.id, type: 'customer' });
+                                    setDeleteTarget({ id: customer.id, type: 'customer' });
                                     setIsDeleteConfirmOpen(true);
                                   }}
                                   className="p-1 hover:bg-gray-200 rounded transition-colors"
@@ -2430,7 +3209,7 @@ export default function App() {
                 </div>
               </motion.div>
             )}
-            
+
             {activeTab === 'deliveryNote' && (
               <motion.div 
                 key="deliveryNote"
@@ -2439,336 +3218,708 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
               >
-                <div className="flex border-b border-[#141414] mb-6 no-print">
-                  <button 
-                    onClick={() => setDeliveryNoteSubTab('preview')}
-                    className={cn(
-                      "px-8 py-4 text-xs font-bold uppercase tracking-widest transition-all",
-                      deliveryNoteSubTab === 'preview' ? "bg-[#141414] text-[#E4E3E0]" : "hover:bg-[#141414]/5"
-                    )}
-                  >
-                    SOẠN PHIẾU GIAO HÀNG
-                  </button>
-                  <button 
-                    onClick={() => setDeliveryNoteSubTab('history')}
-                    className={cn(
-                      "px-8 py-4 text-xs font-bold uppercase tracking-widest transition-all",
-                      deliveryNoteSubTab === 'history' ? "bg-[#141414] text-[#E4E3E0]" : "hover:bg-[#141414]/5"
-                    )}
-                  >
-                    LỊCH SỬ PHIẾU
-                  </button>
-                </div>
-
-                {deliveryNoteSubTab === 'preview' ? (
-                  <>
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print mb-6">
-                      <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
-                        <button 
-                          onClick={() => fileInputRef.current?.click()}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
-                        >
-                          <FileUp size={14} />
-                          TẢI FILE LỆNH (ERP)
-                        </button>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6 w-full">
+                    <h2 className="font-serif italic text-2xl">Lệnh xuất kho</h2>
+                    <div className="flex border-b border-gray-200 w-full sm:w-auto overflow-x-auto">
+                      <button
+                        onClick={() => setDeliveryNoteSubTab('preview')}
+                        className={cn(
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap",
+                          deliveryNoteSubTab === 'preview' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
+                        )}
+                      >
+                        Phiếu giao nhận
+                      </button>
+                      <button
+                        onClick={() => setDeliveryNoteSubTab('history')}
+                        className={cn(
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap",
+                          deliveryNoteSubTab === 'history' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
+                        )}
+                      >
+                        Lịch sử đã Post
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
+                    <div className="relative flex-1 sm:flex-none">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                      <input
+                        type="text"
+                        placeholder="Tìm kiếm..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-10 pr-4 py-2 border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-full sm:w-64"
+                      />
+                    </div>
+                    {deliveryNoteSubTab === 'preview' && (
+                      <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                         <button 
                           onClick={autoAssignLotsFromUI}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-blue-700 transition-colors"
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-blue-700 transition-colors"
+                          title="Tự động tìm và gán Lot No cho toàn bộ danh sách hiện tại"
                         >
-                          <CheckCircle2 size={14} />
-                          GẮN LOT TỰ ĐỘNG
+                          <Package size={14} />
+                          <span className="hidden md:inline">Gắn Lot tự động</span>
                         </button>
                         <button 
                           onClick={handlePostDeliveryNote}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-green-700 transition-colors"
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-green-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-green-700 transition-colors"
                         >
-                          <ArrowUpFromLine size={14} />
-                          POST LỆNH XUẤT KHO
+                          <CheckSquare size={14} />
+                          <span className="hidden md:inline">Post xuất kho</span>
                         </button>
                         <button 
-                          onClick={() => window.print()}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                          onClick={() => {
+                            window.print();
+                          }}
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 border border-[#141414] text-[10px] font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
                         >
                           <Printer size={14} />
-                          IN PHIẾU
+                          <span className="hidden md:inline">In phiếu</span>
                         </button>
                         {selectedRows.length > 0 && (
                           <button
                             onClick={() => {
-                              setDeleteTarget({ id: 'bulk', type: 'deliveryNote' });
+                              setDeleteTarget({ id: 'bulk', type: 'savedDeliveryNote' });
                               setIsDeleteConfirmOpen(true);
                             }}
-                            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-red-700 transition-colors"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-red-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-red-700 transition-colors"
                           >
                             <Trash2 size={14} />
-                            Xóa ({selectedRows.length})
+                            <span className="hidden md:inline">Xóa</span> ({selectedRows.length})
                           </button>
                         )}
                       </div>
+                    )}
+                    {deliveryNoteSubTab === 'preview' && (
+                      <button 
+                        onClick={async () => {
+                        const workbook = new ExcelJS.Workbook();
+                        const worksheet = workbook.addWorksheet('Delivery Note');
+
+                        worksheet.columns = [
+                          { width: 5 },
+                          { width: 20 },
+                          { width: 20 },
+                          { width: 15 },
+                          { width: 35 },
+                          { width: 8 },
+                          { width: 12 },
+                          { width: 12 },
+                          { width: 15 },
+                          { width: 15 },
+                          { width: 15 },
+                          { width: 15 },
+                          { width: 20 },
+                          { width: 20 },
+                          { width: 10 },
+                          { width: 10 },
+                          { width: 10 }
+                        ];
+
+                        const titleRow = worksheet.addRow(['', 'PHIẾU GIAO NHẬN FABRIC']);
+                        titleRow.getCell(2).font = { name: 'Times New Roman', size: 16, bold: true };
+                        titleRow.getCell(2).alignment = { horizontal: 'center' };
+                        worksheet.mergeCells(1, 2, 1, 17);
+
+                        const subtitleRow = worksheet.addRow(['', 'Delivery Note']);
+                        subtitleRow.getCell(2).font = { name: 'Times New Roman', size: 12, italic: true };
+                        subtitleRow.getCell(2).alignment = { horizontal: 'center' };
+                        worksheet.mergeCells(2, 2, 2, 17);
+
+                        worksheet.addRow([]);
+
+                        const meta1 = worksheet.addRow(['Mã Tài Liệu:', deliveryNoteHeader.documentCode]);
+                        meta1.getCell(1).font = { bold: true };
+                        const meta2 = worksheet.addRow(['Dept:', deliveryNoteHeader.dept]);
+                        meta2.getCell(1).font = { bold: true };
+                        const meta3 = worksheet.addRow(['TO:', deliveryNoteHeader.to]);
+                        meta3.getCell(1).font = { bold: true };
+                        const meta4 = worksheet.addRow(['Date:', deliveryNoteHeader.date]);
+                        meta4.getCell(1).font = { bold: true };
+
+                        worksheet.addRow([]);
+
+                        const headerRow = worksheet.addRow([
+                          'No', 'OVN Sale Order', 'OVN Production Order', 'item', 'Material Name', 
+                          'Unit', 'Qty ERP', 'Thực tế', 'Lot No', 'Số lượng thực phát', 
+                          'remark', 'Loại chỉ định', 'Brand', 'Customer code', 'Final Destination', 'No.', 'Vị trí', 'STOCK'
+                        ]);
+
+                        headerRow.eachCell((cell) => {
+                          cell.fill = {
+                            type: 'pattern',
+                            pattern: 'solid',
+                            fgColor: { argb: 'FF001F3F' }
+                          };
+                          cell.font = { color: { argb: 'FFFFFFFF' }, bold: true, size: 9 };
+                          cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                          cell.border = {
+                            top: { style: 'thin' },
+                            left: { style: 'thin' },
+                            bottom: { style: 'thin' },
+                            right: { style: 'thin' }
+                          };
+                        });
+
+                        let totalQtyErp = 0;
+                        let totalActualQty = 0;
+                        let totalActualIssuedQty = 0;
+                        const processedGroups = new Set();
+
+                        deliveryNotes.forEach((item) => {
+                          totalQtyErp += item.qtyErp;
+                          totalActualQty += (item.actualQty || 0);
+                          if (!processedGroups.has(item.item)) {
+                            totalActualIssuedQty += (item.actualIssuedQty || 0);
+                            processedGroups.add(item.item);
+                          }
+
+                          const row = worksheet.addRow([
+                            item.no,
+                            item.ovnSaleOrder,
+                            item.ovnProductionOrder,
+                            item.item,
+                            item.materialName,
+                            item.unit,
+                            item.qtyErp,
+                            item.actualQty,
+                            item.lotNo,
+                            item.actualIssuedQty,
+                            item.remark,
+                            item.loaiChiDinh || '',
+                            item.brand,
+                            item.customerCode,
+                            item.finalDestination,
+                            item.noCode,
+                            item.location,
+                            item.stock
+                          ]);
+
+                          row.eachCell((cell, colNumber) => {
+                            cell.border = {
+                              top: { style: 'thin' },
+                              left: { style: 'thin' },
+                              bottom: { style: 'thin' },
+                              right: { style: 'thin' }
+                            };
+                            cell.font = { size: 9 };
+                            
+                            if ([1, 6, 10].includes(colNumber)) {
+                              cell.alignment = { horizontal: 'center' };
+                            } else if ([7, 8].includes(colNumber)) {
+                              cell.alignment = { horizontal: 'right' };
+                            }
+                          });
+                        });
+
+                        let currentItem = '';
+                        let startMergeRow = 0;
+                        const dataStartRow = 9;
+
+                        deliveryNotes.forEach((item, index) => {
+                          const rowIdx = dataStartRow + index;
+                          if (item.item !== currentItem) {
+                            if (startMergeRow !== 0 && (rowIdx - 1) > startMergeRow) {
+                              worksheet.mergeCells(startMergeRow, 10, rowIdx - 1, 10);
+                            }
+                            currentItem = item.item;
+                            startMergeRow = rowIdx;
+                          }
+                          if (index === deliveryNotes.length - 1) {
+                            if (rowIdx > startMergeRow) {
+                              worksheet.mergeCells(startMergeRow, 10, rowIdx, 10);
+                            }
+                          }
+                        });
+
+                        const totalRow = worksheet.addRow([
+                          'TỔNG CỘNG', '', '', '', '', '', 
+                          totalQtyErp, 
+                          totalActualQty, 
+                          '', 
+                          totalActualIssuedQty,
+                          '', '', '', '', '', '', ''
+                        ]);
+                        worksheet.mergeCells(totalRow.number, 1, totalRow.number, 6);
+                        totalRow.eachCell((cell) => {
+                          cell.font = { bold: true, size: 10 };
+                          cell.border = {
+                            top: { style: 'thin' },
+                            left: { style: 'thin' },
+                            bottom: { style: 'thin' },
+                            right: { style: 'thin' }
+                          };
+                          cell.fill = {
+                            type: 'pattern',
+                            pattern: 'solid',
+                            fgColor: { argb: 'FFF5F5F5' }
+                          };
+                        });
+                        totalRow.getCell(1).alignment = { horizontal: 'center' };
+
+                        worksheet.addRow([]);
+                        worksheet.addRow([]);
+                        const signHeader = worksheet.addRow([
+                          'Người lập phiếu (Prepared by)', '', '', '', 
+                          'Người nhận hàng (Receiver)', '', '', '', '', '', '', '', 
+                          'Thủ kho (Stock keeper)'
+                        ]);
+                        signHeader.eachCell((cell) => { cell.font = { bold: true, italic: true }; });
+                        worksheet.mergeCells(signHeader.number, 1, signHeader.number, 4);
+                        worksheet.mergeCells(signHeader.number, 5, signHeader.number, 12);
+                        worksheet.mergeCells(signHeader.number, 13, signHeader.number, 17);
+
+                        const signSub = worksheet.addRow([
+                          '(Ký, họ tên) (Sign, name)', '', '', '', 
+                          '(Ký, họ tên) (Sign, name)', '', '', '', '', '', '', '', 
+                          '(Ký, họ tên) (Sign, name)'
+                        ]);
+                        signSub.eachCell((cell) => { cell.font = { italic: true, size: 9 }; });
+                        worksheet.mergeCells(signSub.number, 1, signSub.number, 4);
+                        worksheet.mergeCells(signSub.number, 5, signSub.number, 12);
+                        worksheet.mergeCells(signSub.number, 13, signSub.number, 17);
+
+                        [signHeader, signSub].forEach(row => {
+                          row.eachCell(cell => { cell.alignment = { horizontal: 'center' }; });
+                        });
+
+                        const buffer = await workbook.xlsx.writeBuffer();
+                        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                        saveAs(blob, "PhieuGiaoNhanFabric.xlsx");
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-[10px] font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                    >
+                      <Download size={14} />
+                      Xuất Excel
+                    </button>
+                    )}
+                  </div>
+                </div>
+
+                {deliveryNoteSubTab === 'preview' && (
+                  <div className="bg-white border border-[#141414] p-4 sm:p-8 shadow-sm">
+                  <div className="flex justify-center items-start mb-8">
+                    <div className="text-center flex-1">
+                      <h1 className="text-lg sm:text-xl font-bold uppercase tracking-widest">Phiếu giao nhận Fabric</h1>
+                      <p className="text-xs sm:text-sm italic">Delivery Note</p>
                     </div>
+                  </div>
 
-                    <div id="print-area" className="bg-white p-8 sm:p-12 border border-[#141414] shadow-sm max-w-5xl mx-auto text-[#141414]">
-                      {/* Header Logo - Only Text for now but styled */}
-                      <div className="flex justify-between items-start mb-10">
-                        <div className="space-y-1">
-                          <h2 className="text-xl font-bold tracking-tighter">ORTHOLITE VIETNAM</h2>
-                          <p className="text-[10px] uppercase font-bold text-gray-400">Inventory Management System</p>
-                        </div>
-                        <div className="text-right space-y-1">
-                          <p className="text-[11px] font-bold uppercase tracking-wider">Mã tài liệu: {deliveryNoteHeader.documentCode}</p>
-                          <p className="text-[10px] italic text-gray-500">Ngày in: {format(new Date(), 'dd/MM/yyyy HH:mm')}</p>
-                        </div>
-                      </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-2 mb-8 text-[10px] sm:text-xs">
+                    <div className="grid grid-cols-3 border-b border-gray-200 py-1">
+                      <span className="font-bold">Mã Tài Liệu:</span>
+                      <input 
+                        type="text" 
+                        value={deliveryNoteHeader.documentCode} 
+                        onChange={(e) => setDeliveryNoteHeader({...deliveryNoteHeader, documentCode: e.target.value})}
+                        className="col-span-2 border-none focus:ring-0 p-0 bg-transparent"
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 border-b border-gray-200 py-1">
+                      <span className="font-bold">Dept:</span>
+                      <input 
+                        type="text" 
+                        value={deliveryNoteHeader.dept} 
+                        onChange={(e) => setDeliveryNoteHeader({...deliveryNoteHeader, dept: e.target.value})}
+                        className="col-span-2 border-none focus:ring-0 p-0 bg-transparent"
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 border-b border-gray-200 py-1">
+                      <span className="font-bold">TO:</span>
+                      <input 
+                        type="text" 
+                        value={deliveryNoteHeader.to} 
+                        onChange={(e) => setDeliveryNoteHeader({...deliveryNoteHeader, to: e.target.value})}
+                        className="col-span-2 border-none focus:ring-0 p-0 bg-transparent"
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 border-b border-gray-200 py-1">
+                      <span className="font-bold">Date:</span>
+                      <input 
+                        type="text" 
+                        value={deliveryNoteHeader.date} 
+                        onChange={(e) => setDeliveryNoteHeader({...deliveryNoteHeader, date: e.target.value})}
+                        className="col-span-2 border-none focus:ring-0 p-0 bg-transparent"
+                      />
+                    </div>
+                  </div>
 
-                      <div className="text-center space-y-2 mb-12">
-                        <h1 className="text-3xl font-serif italic font-bold uppercase tracking-tight">PHIẾU GIAO NHẬN NỘI BỘ</h1>
-                        <p className="text-sm font-bold opacity-60">(INTERNAL DELIVERY NOTE)</p>
-                      </div>
+                  <div className="overflow-auto max-h-[65vh]">
+                    <table className="w-full border-collapse min-w-[1800px]">
+                      <thead className="sticky top-0 z-10 shadow-sm">
+                        <tr className="bg-[#001F3F] text-white text-[10px] uppercase tracking-wider">
+                          <th className="border border-[#141414] p-2 text-center w-10 no-print">
+                            <button 
+                              onClick={() => {
+                                if (selectedRows.length === filteredDeliveryNotes.length) {
+                                  setSelectedRows([]);
+                                } else {
+                                  setSelectedRows(filteredDeliveryNotes.map(i => i.id));
+                                }
+                              }}
+                              className="p-1 hover:bg-white/10 rounded transition-colors"
+                            >
+                              {selectedRows.length === filteredDeliveryNotes.length && filteredDeliveryNotes.length > 0 ? (
+                                <CheckSquare size={14} />
+                              ) : (
+                                <Square size={14} />
+                              )}
+                            </button>
+                          </th>
+                          <th className="border border-[#141414] p-2 text-center w-12">No</th>
+                          <th className="border border-[#141414] p-2 text-left">OVN Sale Order</th>
+                          <th className="border border-[#141414] p-2 text-left">OVN Production Order</th>
+                          <th className="border border-[#141414] p-2 text-left">item</th>
+                          <th className="border border-[#141414] p-2 text-left">Material Name</th>
+                          <th className="border border-[#141414] p-2 text-center">Unit</th>
+                          <th className="border border-[#141414] p-2 text-right">Qty ERP</th>
+                          <th className="border border-[#141414] p-2 text-right">Thực tế</th>
+                          <th className="border border-[#141414] p-2 text-left">Lot No</th>
+                          <th className="border border-[#141414] p-2 text-right">Số lượng thực phát</th>
+                          <th className="border border-[#141414] p-2 text-left">remark</th>
+                          <th className="border border-[#141414] p-2 text-left">Loại chỉ định</th>
+                          <th className="border border-[#141414] p-2 text-left">Brand</th>
+                          <th className="border border-[#141414] p-2 text-left">Customer code</th>
+                          <th className="border border-[#141414] p-2 text-left">Final Destination</th>
+                          <th className="border border-[#141414] p-2 text-left">No.</th>
+                          <th className="border border-[#141414] p-2 text-left">Vị trí</th>
+                          <th className="border border-[#141414] p-2 text-left">STOCK</th>
+                          <th className="border border-[#141414] p-2 no-print">Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredDeliveryNotes.length === 0 ? (
+                          <tr>
+                            <td colSpan={19} className="p-12 text-center text-gray-400 italic">
+                              Chưa có dữ liệu. Vui lòng tải lên file nguồn để cập nhật.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredDeliveryNotes.map((item, index) => {
+                            const isDesignationMatch = (remark: string, prodOrder: string, saleOrder: string, noCode: string) => {
+                              if (!remark) return true;
+                              // Remove all whitespace and split by /
+                              const codes = remark.replace(/\s+/g, '').toLowerCase().split('/');
+                              const targetRpro = prodOrder.replace(/\s+/g, '').toLowerCase();
+                              const targetSo = saleOrder.replace(/\s+/g, '').toLowerCase();
+                              const targetNo = noCode.replace(/\s+/g, '').toLowerCase();
+                              
+                              return (targetRpro && codes.includes(targetRpro)) || 
+                                     (targetSo && codes.includes(targetSo)) || 
+                                     (targetNo && codes.includes(targetNo));
+                            };
 
-                      <div className="grid grid-cols-2 gap-x-12 gap-y-6 mb-12 text-sm">
-                        <div className="flex border-b border-gray-200 pb-2 flex-col">
-                          <span className="text-[10px] font-bold uppercase tracking-wider opacity-40 mb-1">BỘ PHẬN GIAO (DEPT):</span>
-                          <input 
-                            type="text" 
-                            value={deliveryNoteHeader.dept}
-                            onChange={(e) => setDeliveryNoteHeader(prev => ({ ...prev, dept: e.target.value }))}
-                            className="bg-transparent border-none outline-none font-bold placeholder:opacity-20"
-                            placeholder="Nhập bộ phận..."
-                          />
-                        </div>
-                        <div className="flex border-b border-gray-200 pb-2 flex-col">
-                          <span className="text-[10px] font-bold uppercase tracking-wider opacity-40 mb-1">NGÀY (DATE):</span>
-                          <input 
-                            type="text" 
-                            value={deliveryNoteHeader.date}
-                            onChange={(e) => setDeliveryNoteHeader(prev => ({ ...prev, date: e.target.value }))}
-                            className="bg-transparent border-none outline-none font-bold placeholder:opacity-20"
-                            placeholder="dd/mm/yyyy"
-                          />
-                        </div>
-                        <div className="flex border-b border-gray-200 pb-2 flex-col">
-                          <span className="text-[10px] font-bold uppercase tracking-wider opacity-40 mb-1">BỘ PHẬN NHẬN (TO):</span>
-                          <input 
-                            type="text" 
-                            value={deliveryNoteHeader.to}
-                            onChange={(e) => setDeliveryNoteHeader(prev => ({ ...prev, to: e.target.value }))}
-                            className="bg-transparent border-none outline-none font-bold placeholder:opacity-20"
-                            placeholder="Nhập người nhận/bộ phận..."
-                          />
-                        </div>
-                      </div>
+                            const hasMismatch = !isDesignationMatch(item.remark, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode);
 
-                      <div className="overflow-x-auto mb-12">
-                        <table className="w-full border-collapse">
-                          <thead>
-                            <tr className="bg-gray-50 text-[10px] uppercase font-bold">
-                              <th className="border-2 border-[#141414] p-2 no-print w-8 h-8">
-                                <button onClick={() => {
-                                  const currentIds = filteredDeliveryNotes.map(item => item.id);
-                                  if (selectedRows.length === currentIds.length) setSelectedRows([]);
-                                  else setSelectedRows(currentIds);
-                                }}>
-                                  {selectedRows.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
-                                </button>
-                              </th>
-                              <th className="border-2 border-[#141414] p-2 w-10">STT</th>
-                              <th className="border-2 border-[#141414] p-2 text-left">Mô tả hàng hóa</th>
-                              <th className="border-2 border-[#141414] p-2">Mã HH</th>
-                              <th className="border-2 border-[#141414] p-2 w-16">ĐVT</th>
-                              <th className="border-2 border-[#141414] p-2 w-20">S.Lượng</th>
-                              <th className="border-2 border-[#141414] p-2 w-24">Lot No.</th>
-                              <th className="border-2 border-[#141414] p-2 w-32">Vị Trí</th>
-                              <th className="border-2 border-[#141414] p-2 text-left">Ghi chú</th>
-                              <th className="border-2 border-[#141414] p-2 no-print w-20">Xử lý</th>
-                            </tr>
-                          </thead>
-                          <tbody className="text-xs">
-                            {filteredDeliveryNotes.map((item, index) => {
-                              const isSelected = selectedRows.includes(item.id);
-                              return (
-                                <tr key={item.id} className={cn(
-                                  "hover:bg-gray-50 group",
-                                  isSelected && "bg-blue-50"
+                            // RowSpan logic
+                            const isFirstInItemGroup = index === 0 || filteredDeliveryNotes[index - 1].item !== item.item;
+                            let itemGroupSize = 0;
+                            if (isFirstInItemGroup) {
+                              for (let i = index; i < filteredDeliveryNotes.length; i++) {
+                                if (filteredDeliveryNotes[i].item === item.item) {
+                                  itemGroupSize++;
+                                } else {
+                                  break;
+                                }
+                              }
+                            }
+
+                            // Aggregate lots for the group
+                            const getGroupedLots = (itemCode: string, startIndex: number, size: number) => {
+                              const groupItems = filteredDeliveryNotes.slice(startIndex, startIndex + size);
+                              const allLots: {lotNo: string, qty: number, stock: string, location: string, loaiChiDinh: string}[] = [];
+                              
+                              groupItems.forEach(gi => {
+                                if (gi.assignedLots) {
+                                  gi.assignedLots.forEach(lot => {
+                                    const existing = allLots.find(l => l.lotNo === lot.lotNo);
+                                    if (existing) {
+                                      existing.qty += lot.qty;
+                                    } else {
+                                      allLots.push({ ...lot });
+                                    }
+                                  });
+                                }
+                              });
+                              return allLots;
+                            };
+
+                            const groupLots = isFirstInItemGroup ? getGroupedLots(item.item, index, itemGroupSize) : [];
+
+                            return (
+                              <tr 
+                                key={item.id} 
+                                className={cn(
+                                  "text-[11px] transition-colors",
+                                  !item.noCode ? "bg-yellow-200 text-red-600 font-bold" : "bg-white hover:bg-gray-50",
+                                  hasMismatch ? "bg-red-100 text-red-700" : "",
+                                  selectedRows.includes(item.id) && "bg-blue-50"
+                                )}
+                              >
+                                <td className="border border-[#141414] p-2 text-center no-print">
+                                  <button 
+                                    onClick={() => {
+                                      if (selectedRows.includes(item.id)) {
+                                        setSelectedRows(selectedRows.filter(id => id !== item.id));
+                                      } else {
+                                        setSelectedRows([...selectedRows, item.id]);
+                                      }
+                                    }}
+                                    className="p-1 hover:bg-gray-100 rounded transition-colors"
+                                  >
+                                    {selectedRows.includes(item.id) ? (
+                                      <CheckSquare size={14} className="text-[#141414]" />
+                                    ) : (
+                                      <Square size={14} className="text-gray-400" />
+                                    )}
+                                  </button>
+                                </td>
+                                <td className="border border-[#141414] p-2 text-center font-bold">{item.no}</td>
+                                <td className="border border-[#141414] p-2">{item.ovnSaleOrder}</td>
+                                <td className={cn(
+                                  "border border-[#141414] p-2",
+                                  hasMismatch && "font-bold underline decoration-double"
                                 )}>
-                                  <td className="border-2 border-[#141414] p-2 text-center no-print">
-                                    <button onClick={() => toggleRowSelection(item.id)}>
-                                      {isSelected ? <CheckSquare size={14} /> : <Square size={14} />}
-                                    </button>
-                                  </td>
-                                  <td className="border-2 border-[#141414] p-2 text-center font-bold">{index + 1}</td>
-                                  <td className="border-2 border-[#141414] p-2">
-                                    <p className="font-bold">{item.materialName}</p>
-                                    <p className="text-[9px] opacity-40 uppercase">Brand: {item.brand} | Cust: {item.customerCode}</p>
-                                  </td>
-                                  <td className="border-2 border-[#141414] p-2 font-mono text-center text-[10px]">{item.item}</td>
-                                  <td className="border-2 border-[#141414] p-2 text-center">{item.unit}</td>
-                                  <td className="border-2 border-[#141414] p-2 text-center font-bold italic">{item.actualQty.toLocaleString()}</td>
-                                  <td className="border-2 border-[#141414] p-2">
-                                    {item.assignedLots && item.assignedLots.length > 0 ? (
-                                      <div className="space-y-1">
-                                        {item.assignedLots.map((lot, idx) => (
-                                          <div key={idx} className="flex justify-between items-center gap-2 border-b border-gray-100 last:border-0 pb-1">
-                                            <span className="font-mono">{lot.lotNo}</span>
-                                            <span className="font-bold opacity-60">({lot.qty.toLocaleString()})</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <div className="text-red-500 font-bold text-[9px] text-center">CHƯA GẮN LOT</div>
-                                    )}
-                                  </td>
-                                  <td className="border-2 border-[#141414] p-2">
-                                    {item.assignedLots && item.assignedLots.length > 0 ? (
-                                      <div className="text-center font-bold">
-                                        {[...new Set(item.assignedLots.map(l => l.location))].filter(Boolean).join(', ') || 'N/A'}
-                                      </div>
-                                    ) : (
-                                      <div className="text-center text-gray-300">N/A</div>
-                                    )}
-                                  </td>
-                                  <td className="border-2 border-[#141414] p-2">
-                                    {item.assignedLots && item.assignedLots.length > 0 ? (
-                                      <div className="space-y-1">
-                                        {item.assignedLots.map((lot, idx) => (
-                                          <p key={idx} className="text-[9px] opacity-60 leading-tight">
-                                            {lot.stock}
-                                          </p>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <p className="text-red-400 italic text-[9px]">{item.stock}</p>
-                                    )}
-                                  </td>
-                                  <td className="border-2 border-[#141414] p-2 no-print">
-                                    <div className="flex items-center justify-center gap-1 opacity-10 group-hover:opacity-100 transition-opacity">
-                                      <button 
-                                        onClick={() => handleEditDeliveryNoteItemClick(item.id)}
-                                        className="p-1 hover:bg-gray-200 rounded text-blue-600"
-                                      >
-                                        <Edit2 size={12} />
-                                      </button>
-                                      <button 
-                                        onClick={() => handleDeleteDeliveryNoteItem(item.id)}
-                                        className="p-1 hover:bg-gray-200 rounded text-red-600"
-                                      >
-                                        <Trash2 size={12} />
-                                      </button>
+                                  {item.ovnProductionOrder}
+                                </td>
+                                <td className="border border-[#141414] p-2 font-mono">{item.item}</td>
+                                <td className="border border-[#141414] p-2">{item.materialName}</td>
+                                <td className="border border-[#141414] p-2 text-center">{item.unit}</td>
+                                <td className="border border-[#141414] p-2 text-right font-mono">{item.qtyErp.toLocaleString()}</td>
+                                
+                                <td className="border border-[#141414] p-2 text-right font-mono bg-blue-50/30">
+                                  {item.assignedLots && item.assignedLots.length > 0 ? (
+                                    item.actualQty.toLocaleString()
+                                  ) : (
+                                    <input 
+                                      type="number"
+                                      value={item.actualQty || 0}
+                                      onChange={(e) => handleEditDeliveryNoteItem(index, 'actualQty', Number(e.target.value))}
+                                      className="w-full bg-transparent text-right focus:outline-none focus:ring-1 focus:ring-[#141414]"
+                                    />
+                                  )}
+                                </td>
+                                
+                                {isFirstInItemGroup ? (
+                                  <>
+                                    <td rowSpan={itemGroupSize} className="border border-[#141414] p-2 bg-blue-50/30 align-middle">
+                                      {groupLots.length > 0 ? (
+                                        <div className="flex flex-col gap-1">
+                                          {groupLots.map((lot, idx) => (
+                                            <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
+                                              {lot.lotNo} ({lot.qty.toLocaleString()})
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        item.lotNo
+                                      )}
+                                    </td>
+                                    <td rowSpan={itemGroupSize} className="border border-[#141414] p-2 text-right font-mono align-middle bg-gray-50/50 text-blue-600 font-bold">
+                                      {groupLots.length > 0 ? (
+                                        groupLots.reduce((sum, lot) => sum + lot.qty, 0).toLocaleString()
+                                      ) : (
+                                        filteredDeliveryNotes.slice(index, index + itemGroupSize)
+                                          .reduce((sum, gi) => sum + (gi.actualQty || 0), 0).toLocaleString()
+                                      )}
+                                    </td>
+                                  </>
+                                ) : null}
+
+                                <td className={cn(
+                                  "border border-[#141414] p-2",
+                                  hasMismatch && "bg-red-200 font-bold"
+                                )}>
+                                  <input 
+                                    type="text"
+                                    value={item.remark}
+                                    onChange={(e) => handleEditDeliveryNoteItem(index, 'remark', e.target.value)}
+                                    className="w-full bg-transparent focus:outline-none focus:ring-1 focus:ring-[#141414]"
+                                  />
+                                  {hasMismatch && (
+                                    <div className="text-[9px] mt-1 flex items-center gap-1">
+                                      <AlertTriangle size={10} />
+                                      <span>Sai mã chỉ định</span>
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="border border-[#141414] p-2 bg-blue-50/30">
+                                  {item.assignedLots && item.assignedLots.length > 0 ? (
+                                    <div className="flex flex-col gap-1">
+                                      {item.assignedLots.map((lot, idx) => (
+                                        <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
+                                          {lot.loaiChiDinh}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    item.loaiChiDinh
+                                  )}
+                                </td>
+                                <td className="border border-[#141414] p-2">{item.brand}</td>
+                                <td className="border border-[#141414] p-2">{item.customerCode}</td>
+                                <td className="border border-[#141414] p-2">{item.finalDestination}</td>
+                                <td className="border border-[#141414] p-2">{item.noCode}</td>
+                                <td className="border border-[#141414] p-2">
+                                  {item.assignedLots && item.assignedLots.length > 0 ? (
+                                    <div className="flex flex-col gap-1">
+                                      {item.assignedLots.map((lot, idx) => (
+                                        <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
+                                          {getLocationByItemAndLot(item.item, lot.lotNo)}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    getLocationByItemAndLot(item.item, item.lotNo)
+                                  )}
+                                </td>
+                                {isFirstInItemGroup ? (
+                                  <td rowSpan={itemGroupSize} className={cn(
+                                    "border border-[#141414] p-2 bg-blue-50/30 align-middle",
+                                    getStockDetailByDesignation(item.item) === 'Không có tồn' ? "bg-red-500 text-white font-bold" : ""
+                                  )}>
+                                    <div className="flex flex-col gap-1">
+                                      <div className="font-medium">{getStockDetailByDesignation(item.item)}</div>
+                                      {(() => {
+                                        const groupItems = filteredDeliveryNotes.slice(index, index + itemGroupSize);
+                                        const totalNeeded = groupItems.reduce((sum, gi) => sum + (gi.actualQty || gi.qtyErp), 0);
+                                        const totalAssigned = groupItems.reduce((sum, gi) => sum + (gi.actualIssuedQty || 0), 0);
+                                        const shortage = Math.max(0, totalNeeded - totalAssigned);
+                                        
+                                        if (shortage > 0) {
+                                          return (
+                                            <div className="text-[10px] text-red-600 font-bold bg-red-50 px-1 rounded border border-red-200 w-fit">
+                                              THIẾU: {shortage.toLocaleString()}
+                                            </div>
+                                          );
+                                        }
+                                        if (groupLots.length > 0) {
+                                          return (
+                                            <div className="text-[10px] text-green-600 font-bold bg-green-50 px-1 rounded border border-green-200 w-fit">
+                                              ĐỦ TỒN
+                                            </div>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
                                     </div>
                                   </td>
-                                </tr>
-                              );
-                            })}
-                            
-                            {/* Filling empty rows to maintain form length if needed */}
-                            {filteredDeliveryNotes.length < 10 && [...Array(Math.max(0, 10 - filteredDeliveryNotes.length))].map((_, i) => (
-                              <tr key={`empty-${i}`} className="h-10">
-                                <td className="border-2 border-[#141414] p-2 no-print"></td>
-                                <td className="border-2 border-[#141414] p-2"></td>
-                                <td className="border-2 border-[#141414] p-2"></td>
-                                <td className="border-2 border-[#141414] p-2"></td>
-                                <td className="border-2 border-[#141414] p-2"></td>
-                                <td className="border-2 border-[#141414] p-2"></td>
-                                <td className="border-2 border-[#141414] p-2"></td>
-                                <td className="border-2 border-[#141414] p-2"></td>
-                                <td className="border-2 border-[#141414] p-2"></td>
-                                <td className="border-2 border-[#141414] p-2 no-print"></td>
+                                ) : null}
+                                <td className="border border-[#141414] p-2 no-print text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <button 
+                                      onClick={() => handleEditDeliveryNoteItemClick(item.id)}
+                                      className="text-blue-600 hover:text-blue-800 transition-colors"
+                                      title="Sửa"
+                                    >
+                                      <Edit2 size={14} />
+                                    </button>
+                                    <button 
+                                      onClick={() => handleDeleteDeliveryNoteItem(item.id)}
+                                      className="text-red-600 hover:text-red-800 transition-colors"
+                                      title="Xóa"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                </td>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                            );
+                          })
+                        )}
+                        {filteredDeliveryNotes.length > 0 && (
+                          <tr className="bg-gray-50 font-bold text-[11px]">
+                            <td colSpan={6} className="border border-[#141414] p-2 text-center uppercase">Tổng cộng</td>
+                            <td className="border border-[#141414] p-2 text-right font-mono">
+                              {filteredDeliveryNotes.reduce((sum, item) => sum + item.qtyErp, 0).toLocaleString()}
+                            </td>
+                            <td className="border border-[#141414] p-2 text-right font-mono">
+                              {filteredDeliveryNotes.reduce((sum, item) => sum + (item.actualQty || 0), 0).toLocaleString()}
+                            </td>
+                            <td className="border border-[#141414] p-2"></td>
+                            <td className="border border-[#141414] p-2 text-right font-mono">
+                              {Array.from(new Set(filteredDeliveryNotes.map(item => item.item)))
+                                .reduce((sum, itemCode) => {
+                                  const item = filteredDeliveryNotes.find(dn => dn.item === itemCode);
+                                  return sum + (item?.actualIssuedQty || 0);
+                                }, 0).toLocaleString()}
+                            </td>
+                            <td colSpan={7} className="border border-[#141414] p-2"></td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
 
-                      <div className="grid grid-cols-3 gap-8 text-center mt-16 font-bold uppercase tracking-widest text-[10px]">
-                        <div className="space-y-24">
-                          <p>NGƯỜI GIAO (ISSUER)</p>
-                          <div className="flex flex-col items-center">
-                            <p className="border-t border-[#141414] w-32 pt-2 opacity-30 font-normal normal-case italic">Ký & ghi rõ họ tên</p>
-                          </div>
-                        </div>
-                        <div className="space-y-24">
-                          <p>THỦ KHO (KEEPER)</p>
-                          <div className="flex flex-col items-center">
-                            <p className="border-t border-[#141414] w-32 pt-2 opacity-30 font-normal normal-case italic">Ký & ghi rõ họ tên</p>
-                          </div>
-                        </div>
-                        <div className="space-y-24">
-                          <p>NGƯỜI NHẬN (RECEIVER)</p>
-                          <div className="flex flex-col items-center">
-                            <p className="border-t border-[#141414] w-32 pt-2 opacity-30 font-normal normal-case italic">Ký & ghi rõ họ tên</p>
-                          </div>
-                        </div>
-                      </div>
+                  <div className="grid grid-cols-3 gap-8 mt-12 text-center text-xs italic">
+                    <div>
+                      <p className="font-bold mb-12">Người lập phiếu (Prepared by)</p>
+                      <p>(Ký, họ tên) (Sign, name)</p>
                     </div>
-                  </>
-                ) : (
+                    <div>
+                      <p className="font-bold mb-12">Người nhận hàng (Receiver)</p>
+                      <p>(Ký, họ tên) (Sign, name)</p>
+                    </div>
+                    <div>
+                      <p className="font-bold mb-12">Thủ kho (Stock keeper)</p>
+                      <p>(Ký, họ tên) (Sign, name)</p>
+                    </div>
+                  </div>
+                </div>
+
+                )}
+                
+                {deliveryNoteSubTab === 'history' && (
                   <div className="space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-                      <h2 className="font-serif italic text-xl">Lịch sử phiếu đã lưu</h2>
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                          <input
-                            type="text"
-                            placeholder="Tìm kiếm phiếu..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-10 pr-4 py-2 border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-64"
-                          />
-                        </div>
+                    {savedDeliveryNotes.length === 0 ? (
+                      <div className="text-center py-12 bg-white border border-dashed border-gray-300">
+                        <p className="text-gray-400 italic">Chưa có phiếu nào được Post</p>
                       </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {savedDeliveryNotes.map(note => (
-                        <div key={note.id} className="border-2 border-[#141414] p-6 bg-white hover:shadow-lg transition-all relative group">
-                          <div className="flex justify-between items-start mb-4">
+                    ) : (
+                      savedDeliveryNotes.map((note) => (
+                        <div key={note.id} className="border border-[#141414] p-6 bg-white flex justify-between items-center hover:shadow-md transition-shadow">
+                          <div className="flex items-center gap-6">
+                            <div className="w-12 h-12 bg-[#141414] text-[#E4E3E0] flex items-center justify-center">
+                              <FileText size={20} />
+                            </div>
                             <div>
-                              <div className="flex items-center gap-2 mb-1">
-                                <FileText size={16} className="text-[#1a5f7a]" />
-                                <h3 className="font-bold text-sm">PHIẾU : {note.date}</h3>
+                              <p className="font-bold text-lg">Phiếu ngày: {note.date}</p>
+                              <div className="flex gap-4 text-xs opacity-60 mt-1">
+                                <span>Số lượng dòng: {note.items.length}</span>
+                                <span>ID: {note.id.slice(0, 8)}...</span>
                               </div>
-                              <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Mã ID: {note.id.slice(0, 8)}...</p>
-                            </div>
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button 
-                                onClick={() => {
-                                  setDeliveryNotes(note.items);
-                                  setDeliveryNoteSubTab('preview');
-                                }}
-                                className="p-2 hover:bg-[#141414] hover:text-[#E4E3E0] rounded transition-all"
-                                title="Mở lại phiếu"
-                              >
-                                <Plus size={16} />
-                              </button>
-                              <button 
-                                onClick={() => handleDelete(note.id, 'savedDeliveryNote')}
-                                className="p-2 hover:bg-red-600 hover:text-white rounded transition-all"
-                                title="Xóa phiếu"
-                              >
-                                <Trash2 size={16} />
-                              </button>
                             </div>
                           </div>
-                          <div className="space-y-2 border-t border-gray-100 pt-4">
-                            <p className="text-xs font-bold">Tổng số mặt hàng: {note.items.length}</p>
-                            <p className="text-xs font-bold text-[#1a5f7a]">
-                              Tổng số lượng: {note.items.reduce((sum, i) => sum + (i.actualQty || 0), 0).toLocaleString()}
-                            </p>
+                          <div className="flex gap-4">
+                            <button 
+                              onClick={() => {
+                                setDeliveryNotes(note.items);
+                                setDeliveryNoteSubTab('preview');
+                              }}
+                              className="px-4 py-2 border border-[#141414] text-[10px] font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                            >
+                              Xem lại
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setDeleteTarget({ id: note.id, type: 'savedDeliveryNote' });
+                                setIsDeleteConfirmOpen(true);
+                              }}
+                              className="px-4 py-2 border border-red-600 text-red-600 text-[10px] font-bold uppercase tracking-wider hover:bg-red-600 hover:text-white transition-colors"
+                            >
+                              Xóa
+                            </button>
                           </div>
                         </div>
-                      ))}
-                      {savedDeliveryNotes.length === 0 && (
-                        <div className="col-span-full py-20 text-center border-2 border-dashed border-[#141414] opacity-30">
-                          <FileText size={48} className="mx-auto mb-4" />
-                          <p className="text-xs font-bold uppercase tracking-widest">Chưa có lịch sử phiếu được lưu</p>
-                        </div>
-                      )}
-                    </div>
+                      ))
+                    )}
                   </div>
                 )}
               </motion.div>
             )}
-
             {activeTab === 'location' && (
               <motion.div 
                 key="location"
@@ -2777,40 +3928,55 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
               >
-                <div className="flex border-b border-[#141414] mb-6 no-print">
-                  <button 
-                    onClick={() => setLocationSubTab('input')}
-                    className={cn(
-                      "px-8 py-4 text-xs font-bold uppercase tracking-widest transition-all",
-                      locationSubTab === 'input' ? "bg-blue-600 text-white" : "hover:bg-blue-50 text-blue-600/60"
-                    )}
-                  >
-                    LỊCH SỬ NHẬP VỊ TRÍ
-                  </button>
-                  <button 
-                    onClick={() => setLocationSubTab('output')}
-                    className={cn(
-                      "px-8 py-4 text-xs font-bold uppercase tracking-widest transition-all",
-                      locationSubTab === 'output' ? "bg-orange-600 text-white" : "hover:bg-orange-50 text-orange-600/60"
-                    )}
-                  >
-                    LỊCH SỬ XUẤT VỊ TRÍ
-                  </button>
-                  <button 
-                    onClick={() => setLocationSubTab('inventory')}
-                    className={cn(
-                      "px-8 py-4 text-xs font-bold uppercase tracking-widest transition-all",
-                      locationSubTab === 'inventory' ? "bg-green-600 text-white" : "hover:bg-green-50 text-green-600/60"
-                    )}
-                  >
-                    BÁO CÁO TỒN VỊ TRÍ
-                  </button>
-                </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <h2 className="font-serif italic text-2xl capitalize">
-                    {locationSubTab === 'inventory' ? 'QUẢN LÝ VỊ TRÍ (STOCK)' : 'NHẬP/XUẤT NHANH (LOG)'}
-                  </h2>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6 w-full">
+                    <h2 className="font-serif italic text-2xl">Quản lý Vị Trí</h2>
+                    <div className="flex border-b border-gray-200 w-full sm:w-auto overflow-x-auto">
+                      <button
+                        onClick={() => {
+                          setLocationSubTab('input');
+                          setScanMode('INPUT');
+                        }}
+                        className={cn(
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap",
+                          locationSubTab === 'input' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
+                        )}
+                      >
+                        NHẬP VỊ TRÍ
+                      </button>
+                      <button
+                        onClick={() => {
+                          setLocationSubTab('output');
+                          setScanMode('OUTPUT');
+                        }}
+                        className={cn(
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap",
+                          locationSubTab === 'output' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
+                        )}
+                      >
+                        XUẤT VỊ TRÍ
+                      </button>
+                      <button
+                        onClick={() => setLocationSubTab('inventory')}
+                        className={cn(
+                          "px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap",
+                          locationSubTab === 'inventory' ? "border-[#141414] text-[#141414]" : "border-transparent text-gray-400 hover:text-gray-600"
+                        )}
+                      >
+                        TỒN VỊ TRÍ
+                      </button>
+                    </div>
+                    <div className="relative w-full sm:w-auto">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                      <input 
+                        type="text" 
+                        placeholder="Tìm kiếm..."
+                        value={locationSearch}
+                        onChange={(e) => setLocationSearch(e.target.value)}
+                        className="pl-9 pr-4 py-2 bg-white border border-[#141414] text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] w-full sm:w-64"
+                      />
+                    </div>
+                  </div>
                   <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
                     <button 
                       onClick={() => {
@@ -2864,793 +4030,910 @@ export default function App() {
                               : 'bg-white text-blue-600 opacity-30 hover:opacity-50'
                           }`}
                         >
-                          Chế độ NHẬP
+                          NHẬP
                         </button>
                         <button
                           onClick={() => setScanMode('OUTPUT')}
                           className={`flex-1 sm:flex-none px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all border border-[#141414] ${
                             scanMode === 'OUTPUT' 
-                              ? 'bg-orange-600 text-white opacity-100' 
-                              : 'bg-white text-orange-600 opacity-30 hover:opacity-50'
+                              ? 'bg-red-600 text-white opacity-100' 
+                              : 'bg-white text-red-600 opacity-30 hover:opacity-50'
                           }`}
                         >
-                          Chế độ XUẤT
+                          XUẤT
                         </button>
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <p className="text-[10px] text-gray-500 italic">Mẹo: Quét mã vị trí (bắt đầu bằng FB) trước để định vị, sau đó quét các mã cuộn vải.</p>
-                      <div className="flex gap-4">
-                        <div className="flex-1">
-                          <textarea
-                            rows={4}
-                            placeholder="Dán mã QR hoặc quét tại đây... (Ví dụ: FB01-A-01 rồi mã cuộn)"
-                            className="w-full p-4 border border-[#141414] text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[#141414] bg-gray-50"
-                            value={scanInput}
-                            onChange={(e) => setScanInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleProcessScanInput();
-                              }
-                            }}
-                          />
-                        </div>
-                        <div className="w-48 flex flex-col gap-2">
-                          <div className="flex-1 bg-gray-100 border border-[#141414] p-3 flex flex-col justify-center items-center text-center">
-                            <span className="text-[10px] font-bold uppercase tracking-wider opacity-40">Vị trí hiện tại</span>
-                            <span className="text-xl font-bold font-mono">{currentLocation || 'N/A'}</span>
-                          </div>
-                          <button
-                            onClick={handleProcessScanInput}
-                            className={cn(
-                              "py-3 text-white text-xs font-bold uppercase tracking-widest transition-all",
-                              scanMode === 'INPUT' ? "bg-blue-600 hover:bg-blue-700" : "bg-orange-600 hover:bg-orange-700"
-                            )}
-                          >
-                            Xử lý
-                          </button>
-                        </div>
-                      </div>
+                    <div className="flex flex-col sm:flex-row gap-4">
+                      <textarea 
+                        value={scanInput}
+                        onChange={(e) => setScanInput(e.target.value)}
+                        placeholder="Dán mã tại đây. Vị trí bắt đầu bằng FB, QRCODE bắt đầu bằng AWB..."
+                        className="flex-1 h-24 p-3 border border-[#141414] text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#141414] resize-none"
+                      />
+                      <button 
+                        onClick={handleProcessScanInput}
+                        disabled={!scanInput.trim()}
+                        className="py-4 sm:py-0 sm:px-8 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50 flex flex-row sm:flex-col items-center justify-center gap-2"
+                      >
+                        <Save size={20} />
+                        Cập nhật
+                      </button>
                     </div>
                   </div>
                 )}
 
-                <div className="border border-[#141414] overflow-x-auto max-h-[70vh]">
-                  <table className="w-full border-collapse min-w-[1000px]">
-                    <thead className="sticky top-0 z-10 shadow-sm">
-                      <tr className={cn(
-                        "text-white text-[11px] uppercase tracking-wider",
-                        locationSubTab === 'input' ? "bg-blue-600" : (locationSubTab === 'output' ? "bg-orange-600" : "bg-green-600")
-                      )}>
-                        <th className="border border-[#141414] p-3 w-10">
-                          <button onClick={() => {
-                            const currentIds = (locationSubTab === 'inventory' ? filteredLocationInventoryEntries : filteredLocationEntries).map(e => e.id);
-                            if (selectedRows.length === currentIds.length) setSelectedRows([]);
-                            else setSelectedRows(currentIds);
-                          }}>
-                            {selectedRows.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
-                          </button>
-                        </th>
-                        <th className="border border-[#141414] p-3 text-left">QRCODE</th>
-                        <th className="border border-[#141414] p-3 text-left">Mã</th>
-                        <th className="border border-[#141414] p-3 text-left">NCC</th>
-                        <th className="border border-[#141414] p-3 text-left">NGÀY</th>
-                        <th className="border border-[#141414] p-3 text-center bg-yellow-400 text-[#141414]">Vị trí</th>
-                        <th className="border border-[#141414] p-3 text-left">Cuộn/Ghi chú</th>
-                        {locationSubTab === 'inventory' && <th className="border border-[#141414] p-3 text-center">Số lượng</th>}
-                        <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
-                          Thao tác
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(locationSubTab === 'inventory' ? filteredLocationInventoryEntries : filteredLocationEntries).map(entry => {
-                        const isSelected = selectedRows.includes(entry.id);
-                        return (
-                          <tr key={entry.id} className={cn(
-                            "bg-white text-xs hover:bg-gray-50 transition-colors",
-                            isSelected && "bg-blue-50"
-                          )}>
-                            <td className="border border-[#141414] p-3 text-center">
-                              <button onClick={() => toggleRowSelection(entry.id)}>
-                                {isSelected ? <CheckSquare size={14} className="text-blue-600" /> : <Square size={14} />}
-                              </button>
-                            </td>
-                            <td className="border border-[#141414] p-3 font-mono">{entry.qrcode}</td>
-                            <td className="border border-[#141414] p-3 font-bold">{entry.sku}</td>
-                            <td className="border border-[#141414] p-3">{entry.partner}</td>
-                            <td className="border border-[#141414] p-3 font-mono">{entry.date}</td>
-                            <td className="border border-[#141414] p-3 text-center font-bold bg-yellow-50">{entry.location}</td>
-                            <td className="border border-[#141414] p-3 italic">{entry.note}</td>
-                            {locationSubTab === 'inventory' && <td className="border border-[#141414] p-3 text-center font-bold text-red-600">{entry.quantity}</td>}
-                            <td className="border border-[#141414] p-3 text-center">
-                              <div className="flex items-center justify-center gap-2">
-                                <button 
-                                  onClick={() => {
-                                    setEditingId(entry.id);
-                                    setNewLocationEntry(entry);
-                                    setIsLocationModalOpen(true);
-                                  }}
-                                  className="p-1 hover:bg-gray-200 rounded transition-colors"
-                                >
-                                  <Edit2 size={14} className="text-blue-600" />
-                                </button>
-                                <button 
-                                  onClick={() => {
-                                    setDeleteTarget({ 
-                                      id: entry.id, 
-                                      type: 'location', 
-                                      qrcode: locationSubTab === 'inventory' ? entry.qrcode : undefined 
-                                    });
-                                    setIsDeleteConfirmOpen(true);
-                                  }}
-                                  className="p-1 hover:bg-gray-200 rounded transition-colors"
-                                >
-                                  <Trash2 size={14} className="text-red-600" />
-                                </button>
-                              </div>
+                {(locationSubTab === 'input' || locationSubTab === 'output') && (
+                  <div className="space-y-4">
+                    <div className="border border-[#141414] overflow-auto max-h-[70vh]">
+                    <table className="w-full border-collapse">
+                      <thead className="sticky top-0 z-10 shadow-sm">
+                        <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
+                          <th className="border border-[#141414] p-3 w-10">
+                            <button onClick={() => {
+                              const currentIds = filteredLocationEntries.map(i => i.id);
+                              if (selectedRows.length === currentIds.length) setSelectedRows([]);
+                              else setSelectedRows(currentIds);
+                            }}>
+                              {selectedRows.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
+                            </button>
+                          </th>
+                          <th className="border border-[#141414] p-3 text-left">QRCODE</th>
+                          <th className="border border-[#141414] p-3 text-left">Mã</th>
+                          <th className="border border-[#141414] p-3 text-left">NCC</th>
+                          <th className="border border-[#141414] p-3 text-left">NGÀY</th>
+                          <th className="border border-[#141414] p-3 text-left">Vị trí</th>
+                          <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
+                            Thao tác
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredLocationEntries.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="border border-[#141414] p-8 text-center italic text-gray-400">
+                              Chưa có dữ liệu vị trí. Hãy nhập file Excel.
                             </td>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                        ) : (
+                          (() => {
+                            const rows: React.ReactNode[] = [];
+                            let lastScanType: string | undefined = undefined;
+                            
+                            const sortedEntries = [...filteredLocationEntries].reverse();
+
+                            sortedEntries.forEach((entry, index) => {
+                              if (entry.scanType && entry.scanType !== lastScanType) {
+                                rows.push(
+                                  <tr key={`header-${entry.scanType}-${index}`} className={cn(
+                                    "font-bold text-sm",
+                                    entry.scanType === 'INPUT' ? "bg-yellow-400" : "bg-cyan-400"
+                                  )}>
+                                    <td colSpan={6} className="border border-[#141414] p-2 uppercase">
+                                      {entry.scanType}
+                                    </td>
+                                  </tr>
+                                );
+                                lastScanType = entry.scanType;
+                              }
+                              
+                              rows.push(
+                                <tr key={entry.id} className={cn(
+                                  "bg-white text-xs hover:bg-gray-50 transition-colors",
+                                  selectedRows.includes(entry.id) && "bg-blue-50"
+                                )}>
+                                  <td className="border border-[#141414] p-3 text-center">
+                                    <button onClick={() => toggleRowSelection(entry.id)}>
+                                      {selectedRows.includes(entry.id) ? <CheckSquare size={14} className="text-blue-600" /> : <Square size={14} />}
+                                    </button>
+                                  </td>
+                                  <td className="border border-[#141414] p-3 font-mono">{entry.qrcode}</td>
+                                  <td className="border border-[#141414] p-3 font-bold">{entry.sku}</td>
+                                  <td className="border border-[#141414] p-3">{entry.partner}</td>
+                                  <td className="border border-[#141414] p-3">{entry.date}</td>
+                                  <td className="border border-[#141414] p-3 font-bold text-blue-600">{entry.location}</td>
+                                  <td className="border border-[#141414] p-3 text-center">
+                                    <div className="flex items-center justify-center gap-2">
+                                      <button 
+                                        onClick={() => {
+                                          setEditingId(entry.id);
+                                          setNewLocationEntry({ ...entry });
+                                          setIsLocationModalOpen(true);
+                                        }}
+                                        className="p-1 hover:bg-gray-200 rounded transition-colors text-blue-600"
+                                      >
+                                        <Edit2 size={14} />
+                                      </button>
+                                      <button 
+                                        onClick={() => {
+                                          setDeleteTarget({ id: entry.id, type: 'location' });
+                                          setIsDeleteConfirmOpen(true);
+                                        }}
+                                        className="p-1 hover:bg-gray-200 rounded transition-colors text-red-600"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            });
+                            
+                            return rows.reverse();
+                          })()
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
+                )}
+
+                {locationSubTab === 'inventory' && (
+                  <div className="border border-[#141414] overflow-auto max-h-[70vh]">
+                    <table className="w-full border-collapse">
+                      <thead className="sticky top-0 z-10 shadow-sm">
+                        <tr className="bg-[#001F3F] text-white text-[11px] uppercase tracking-wider">
+                          <th className="border border-[#141414] p-3 w-10">
+                            <button onClick={() => {
+                              const currentIds = filteredLocationInventoryEntries.map(i => i.id);
+                              if (selectedRows.length === currentIds.length) setSelectedRows([]);
+                              else setSelectedRows(currentIds);
+                            }}>
+                              {selectedRows.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
+                            </button>
+                          </th>
+                          <th className="border border-[#141414] p-3 text-left">QRCODE</th>
+                          <th className="border border-[#141414] p-3 text-left">Mã</th>
+                          <th className="border border-[#141414] p-3 text-left">NCC</th>
+                          <th className="border border-[#141414] p-3 text-left">NGÀY</th>
+                          <th className="border border-[#141414] p-3 text-left">Vị trí</th>
+                          <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
+                            Thao tác
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredLocationInventoryEntries.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="border border-[#141414] p-8 text-center italic text-gray-400">
+                              Không có dữ liệu tồn theo vị trí. Hãy nhập file Excel (Sheet 3).
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredLocationInventoryEntries.map(entry => {
+                            const isSelected = selectedRows.includes(entry.id);
+                            return (
+                              <tr key={entry.id} className={cn(
+                                "bg-white text-xs hover:bg-gray-50 transition-colors",
+                                isSelected && "bg-blue-50"
+                              )}>
+                                <td className="border border-[#141414] p-3 text-center">
+                                  <button onClick={() => toggleRowSelection(entry.id)}>
+                                    {isSelected ? <CheckSquare size={14} className="text-blue-600" /> : <Square size={14} />}
+                                  </button>
+                                </td>
+                                <td className="border border-[#141414] p-3 font-mono">{entry.qrcode}</td>
+                              <td className="border border-[#141414] p-3 font-bold">{entry.sku}</td>
+                              <td className="border border-[#141414] p-3">{entry.partner}</td>
+                              <td className="border border-[#141414] p-3">{entry.date}</td>
+                              <td className="border border-[#141414] p-3 font-bold text-blue-600">{entry.location}</td>
+                              <td className="border border-[#141414] p-3 text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  <button 
+                                    onClick={() => {
+                                      setEditingId(entry.id);
+                                      setNewLocationEntry({ ...entry });
+                                      setIsLocationModalOpen(true);
+                                    }}
+                                    className="p-1 hover:bg-gray-200 rounded transition-colors text-blue-600"
+                                  >
+                                    <Edit2 size={14} />
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      setDeleteTarget({ id: entry.id, type: 'location', qrcode: entry.qrcode });
+                                      setIsDeleteConfirmOpen(true);
+                                    }}
+                                    className="p-1 hover:bg-gray-200 rounded transition-colors text-red-600"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                    </table>
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
-      </main>
 
-      {/* Global Notification */}
       <AnimatePresence>
-        {notification && (
-          <motion.div 
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100]"
-          >
-            <div className={cn(
-              "px-6 py-4 border-2 border-[#141414] font-bold text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl",
-              notification.type === 'success' ? "bg-white text-green-600" : "bg-red-600 text-white"
-            )}>
-              {notification.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-              {notification.message}
-            </div>
-          </motion.div>
+        {isLocationModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#E4E3E0] border border-[#141414] p-8 w-full max-w-md space-y-6"
+            >
+              <h3 className="font-serif italic text-2xl">
+                {editingId ? 'Chỉnh sửa vị trí' : 'Thêm vị trí mới'}
+              </h3>
+              <form onSubmit={handleLocationSubmit} className="space-y-4">
+                <div className="flex items-center gap-2 p-1 bg-white/50 border border-[#141414]/10 rounded">
+                  <button 
+                    type="button"
+                    onClick={() => setScanMode('INPUT')}
+                    className={cn(
+                      "flex-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-all",
+                      scanMode === 'INPUT' 
+                        ? "bg-green-500 text-white shadow-inner" 
+                        : "text-gray-400 hover:bg-gray-100"
+                    )}
+                  >
+                    NHẬP
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setScanMode('OUTPUT')}
+                    className={cn(
+                      "flex-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-all",
+                      scanMode === 'OUTPUT' 
+                        ? "bg-red-500 text-white shadow-inner" 
+                        : "text-gray-400 hover:bg-gray-100"
+                    )}
+                  >
+                    XUẤT
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold opacity-50">QR CODE</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={newLocationEntry.qrcode} 
+                    onChange={(e) => {
+                      const qrcode = e.target.value;
+                      const parsed = parseQRCode(qrcode);
+                      setNewLocationEntry({
+                        ...newLocationEntry,
+                        qrcode,
+                        sku: parsed?.sku || newLocationEntry.sku,
+                        partner: parsed?.partner || newLocationEntry.partner,
+                        date: parsed?.date || ''
+                      });
+                    }}
+                    className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors font-mono"
+                    placeholder="Nhập hoặc dán mã QR..."
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Mã Hàng</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newLocationEntry.sku} 
+                      onChange={(e) => setNewLocationEntry({...newLocationEntry, sku: e.target.value})}
+                      className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">NCC</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newLocationEntry.partner} 
+                      onChange={(e) => setNewLocationEntry({...newLocationEntry, partner: e.target.value})}
+                      className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Ngày</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newLocationEntry.date} 
+                      onChange={(e) => setNewLocationEntry({...newLocationEntry, date: e.target.value})}
+                      className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Vị trí</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newLocationEntry.location} 
+                      onChange={(e) => setNewLocationEntry({...newLocationEntry, location: e.target.value})}
+                      className="w-full bg-transparent border-b border-[#141414] py-2 focus:outline-none focus:border-blue-500 transition-colors font-bold text-blue-600"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    type="button"
+                    onClick={() => setIsLocationModalOpen(false)}
+                    className="flex-1 py-3 border border-[#141414] text-[10px] uppercase font-bold tracking-widest hover:bg-white transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 py-3 bg-[#141414] text-[#E4E3E0] text-[10px] uppercase font-bold tracking-widest hover:opacity-90 transition-opacity"
+                  >
+                    {editingId ? 'Cập nhật' : 'Thêm mới'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
-      {/* Settings/Setup Modal */}
-      <Modal 
-        isOpen={isSetupModalOpen} 
-        onClose={() => setIsSetupModalOpen(false)}
-        title="THIẾT LẬP HỆ THỐNG (SUPABASE)"
-      >
-        <div className="space-y-6">
-          <div className="p-4 bg-gray-100 border-l-4 border-amber-500 text-xs">
-            <p className="font-bold mb-2 uppercase">Lưu ý quan trọng:</p>
-            <p>Hệ thống sử dụng Supabase để lưu trữ dữ liệu an toàn. Nếu bạn chưa cấu hình, dữ liệu sẽ chỉ được lưu tạm thời trên trình duyệt của bạn.</p>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Supabase URL</label>
-              <input 
-                type="text" 
-                value={process.env.VITE_SUPABASE_URL || ''}
-                readOnly
-                className="w-full p-3 bg-gray-50 border border-[#141414] text-xs font-mono opacity-50"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Supabase Anon Key</label>
-              <input 
-                type="text" 
-                value={process.env.VITE_SUPABASE_ANON_KEY ? '••••••••••••••••' : ''}
-                readOnly
-                className="w-full p-3 bg-gray-50 border border-[#141414] text-xs font-mono opacity-50"
-              />
-            </div>
-          </div>
-          <div className="pt-4 border-t border-gray-100">
-            <p className="text-[10px] text-gray-500 leading-relaxed">
-              * Để thay đổi cấu hình, vui lòng cập nhật file <code>.env</code> trong thư mục gốc của dự án và khởi động lại ứng dụng.
-            </p>
-          </div>
-          <div className="flex justify-end gap-3 pt-6">
-            <button 
-              onClick={() => setIsSetupModalOpen(false)}
-              className="px-6 py-3 border border-[#141414] text-xs font-bold uppercase tracking-widest hover:bg-[#141414] hover:text-[#E4E3E0] transition-all"
+      <AnimatePresence>
+        {isProductModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#E4E3E0] border border-[#141414] p-8 w-full max-w-md space-y-6"
             >
-              Đóng
-            </button>
+              <h3 className="font-serif italic text-2xl">
+                {editingId ? 'Chỉnh sửa sản phẩm' : 'Thêm sản phẩm mới'}
+              </h3>
+              <form onSubmit={handleAddProduct} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Mã Hàng (SKU)</label>
+                    <input 
+                      required
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={newProduct.sku}
+                      onChange={e => setNewProduct({...newProduct, sku: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Đơn vị</label>
+                    <input 
+                      required
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={newProduct.unit}
+                      onChange={e => setNewProduct({...newProduct, unit: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold opacity-50">Tên hàng</label>
+                  <input 
+                    required
+                    className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                    value={newProduct.name}
+                    onChange={e => setNewProduct({...newProduct, name: e.target.value})}
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Lot no</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={newProduct.lotNo}
+                      onChange={e => setNewProduct({...newProduct, lotNo: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Ghi chú</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={newProduct.ghiChu}
+                      onChange={e => setNewProduct({...newProduct, ghiChu: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Mã chỉ định</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={newProduct.designationCode}
+                      onChange={e => setNewProduct({...newProduct, designationCode: e.target.value.replace(/\s+/g, '')})}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Loại chỉ định</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={newProduct.loaiChiDinh}
+                      onChange={e => setNewProduct({...newProduct, loaiChiDinh: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    type="button"
+                    onClick={() => setIsProductModalOpen(false)}
+                    className="flex-1 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                  >
+                    Lưu
+                  </button>
+                </div>
+              </form>
+            </motion.div>
           </div>
-        </div>
-      </Modal>
+        )}
+      </AnimatePresence>
 
-      {/* Product Modal */}
-      <Modal 
-        isOpen={isProductModalOpen} 
-        onClose={() => setIsProductModalOpen(false)}
-        title={editingId ? "CHỈNH SỬA MẶT HÀNG" : "THÊM MẶT HÀNG MỚI"}
-      >
-        <form onSubmit={handleAddProduct} className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Mã Hàng (SKU)</label>
-              <input 
-                type="text" required 
-                value={newProduct.sku}
-                onChange={e => setNewProduct({...newProduct, sku: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Tên Sản Phẩm</label>
-              <input 
-                type="text" required 
-                value={newProduct.name}
-                onChange={e => setNewProduct({...newProduct, name: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Loại Hàng</label>
-              <input 
-                type="text" 
-                value={newProduct.category}
-                onChange={e => setNewProduct({...newProduct, category: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Đơn Vị Tính</label>
-              <input 
-                type="text" 
-                value={newProduct.unit}
-                onChange={e => setNewProduct({...newProduct, unit: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Min Stock</label>
-              <input 
-                type="number" 
-                value={newProduct.minStock}
-                onChange={e => setNewProduct({...newProduct, minStock: Number(e.target.value)})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Loại chỉ định</label>
-              <input 
-                type="text" 
-                value={newProduct.loaiChiDinh}
-                onChange={e => setNewProduct({...newProduct, loaiChiDinh: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Mã chỉ định</label>
-              <input 
-                type="text" 
-                value={newProduct.designationCode}
-                onChange={e => setNewProduct({...newProduct, designationCode: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Lot No</label>
-              <input 
-                type="text" 
-                value={newProduct.lotNo}
-                onChange={e => setNewProduct({...newProduct, lotNo: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold uppercase mb-2">Ghi Chú</label>
-            <textarea 
-              value={newProduct.ghiChu}
-              onChange={e => setNewProduct({...newProduct, ghiChu: e.target.value})}
-              className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              rows={2}
-            />
-          </div>
-          <div className="flex justify-end gap-3 pt-6">
-            <button 
-              type="button" 
-              onClick={() => setIsProductModalOpen(false)}
-              className="px-6 py-3 border border-[#141414] text-xs font-bold uppercase tracking-widest hover:bg-gray-100 transition-all"
+      <AnimatePresence>
+        {isTransactionModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#E4E3E0] border border-[#141414] p-8 w-full max-w-md space-y-6"
             >
-              Hủy
-            </button>
-            <button 
-              type="submit"
-              className="px-8 py-3 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-widest hover:opacity-90 transition-all"
-            >
-              {editingId ? "Cập nhật" : "Lưu mặt hàng"}
-            </button>
+              <h3 className="font-serif italic text-2xl">
+                {editingId ? 'Chỉnh sửa giao dịch' : (activeTab === 'inbound' ? 'Cập nhật Nhập kho' : 'Cập nhật Xuất kho')}
+              </h3>
+              <form onSubmit={handleAddTransaction} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold opacity-50">Sản phẩm</label>
+                  <select 
+                    required
+                    className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                    value={newTransaction.productId}
+                    onChange={e => {
+                      const p = products.find(prod => prod.id === e.target.value);
+                      setNewTransaction({
+                        ...newTransaction, 
+                        productId: e.target.value,
+                        lotNo: p?.lotNo,
+                        ghiChu: p?.ghiChu,
+                        designationCode: p?.designationCode
+                      });
+                    }}
+                  >
+                    <option value="">Chọn sản phẩm</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>{p.sku} - {p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Số lượng</label>
+                    <input 
+                      required
+                      type="number"
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none font-mono"
+                      value={newTransaction.quantity || ''}
+                      onChange={e => setNewTransaction({...newTransaction, quantity: Number(e.target.value)})}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Ngày (dd/mm/yyyy)</label>
+                    <input 
+                      required
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none font-mono"
+                      value={newTransaction.date}
+                      onChange={e => setNewTransaction({...newTransaction, date: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold opacity-50">Loại chỉ định</label>
+                  <input 
+                    className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                    value={newTransaction.loaiChiDinh}
+                    onChange={e => setNewTransaction({...newTransaction, loaiChiDinh: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold opacity-50">Ghi chú</label>
+                  <input 
+                    className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                    value={newTransaction.ghiChu}
+                    onChange={e => setNewTransaction({...newTransaction, ghiChu: e.target.value})}
+                  />
+                </div>
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    type="button"
+                    onClick={() => setIsTransactionModalOpen(false)}
+                    className="flex-1 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                  >
+                    Cập nhật
+                  </button>
+                </div>
+              </form>
+            </motion.div>
           </div>
-        </form>
-      </Modal>
+        )}
+      </AnimatePresence>
 
-      {/* Transaction Modal */}
-      <Modal 
-        isOpen={isTransactionModalOpen} 
-        onClose={() => setIsTransactionModalOpen(false)}
-        title={editingId ? "CHỈNH SỬA GIAO DỊCH" : (activeTab === 'inbound' ? "NHẬP KHO MỚI" : "XUẤT KHO MỚI")}
-      >
-        <form onSubmit={handleAddTransaction} className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <label className="block text-[10px] font-bold uppercase mb-2">Chọn Sản Phẩm</label>
-              <select 
-                required 
-                value={newTransaction.productId}
-                onChange={e => {
-                  const p = products.find(p => p.id === e.target.value);
-                  setNewTransaction({
-                    ...newTransaction, 
-                    productId: e.target.value,
-                    lotNo: p?.lotNo || '',
-                    ghiChu: p?.ghiChu || '',
-                    designationCode: p?.designationCode || '',
-                    loaiChiDinh: p?.loaiChiDinh || ''
-                  });
-                }}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none"
-              >
-                <option value="">-- Chọn mặt hàng --</option>
-                {products.map(p => (
-                  <option key={p.id} value={p.id}>{p.sku} - {p.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Số Lượng</label>
-              <input 
-                type="number" required 
-                value={newTransaction.quantity}
-                onChange={e => setNewTransaction({...newTransaction, quantity: Number(e.target.value)})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none font-bold" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Ngày Thực Hiện</label>
-              <input 
-                type="text" required 
-                value={newTransaction.date}
-                onChange={e => setNewTransaction({...newTransaction, date: e.target.value})}
-                placeholder="dd/mm/yyyy"
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">{activeTab === 'inbound' ? 'Nhà cung cấp' : 'Khách hàng / Đối tác'}</label>
-              <input 
-                type="text" required 
-                value={newTransaction.partner}
-                onChange={e => setNewTransaction({...newTransaction, partner: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Lot No</label>
-              <input 
-                type="text" 
-                value={newTransaction.lotNo}
-                onChange={e => setNewTransaction({...newTransaction, lotNo: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Loại chỉ định</label>
-              <input 
-                type="text" 
-                value={newTransaction.loaiChiDinh}
-                onChange={e => setNewTransaction({...newTransaction, loaiChiDinh: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Mã chỉ định</label>
-              <input 
-                type="text" 
-                value={newTransaction.designationCode}
-                onChange={e => setNewTransaction({...newTransaction, designationCode: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold uppercase mb-2">Ghi Chú</label>
-            <textarea 
-              value={newTransaction.ghiChu}
-              onChange={e => setNewTransaction({...newTransaction, ghiChu: e.target.value})}
-              className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              rows={2}
-            />
-          </div>
-          <div className="flex justify-end gap-3 pt-6">
-            <button 
-              type="button" 
-              onClick={() => setIsTransactionModalOpen(false)}
-              className="px-6 py-3 border border-[#141414] text-xs font-bold uppercase tracking-widest hover:bg-gray-100 transition-all"
+      <AnimatePresence>
+        {isCustomerModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#E4E3E0] border border-[#141414] p-8 w-full max-w-md space-y-6"
             >
-              Hủy
-            </button>
-            <button 
-              type="submit"
-              className="px-8 py-3 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-widest hover:opacity-90 transition-all"
-            >
-              {editingId ? "Cập nhật" : (activeTab === 'inbound' ? "Lưu Nhập Kho" : "Lưu Xuất Kho")}
-            </button>
+              <h3 className="font-serif italic text-2xl">
+                {editingId ? 'Chỉnh sửa khách hàng' : 'Thêm khách hàng mới'}
+              </h3>
+              <form onSubmit={handleAddCustomer} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold opacity-50">Mã khách hàng</label>
+                  <input 
+                    required
+                    className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                    value={newCustomer.code}
+                    onChange={e => setNewCustomer({...newCustomer, code: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold opacity-50">Tên khách hàng</label>
+                  <input 
+                    required
+                    className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                    value={newCustomer.name}
+                    onChange={e => setNewCustomer({...newCustomer, name: e.target.value})}
+                  />
+                </div>
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    type="button"
+                    onClick={() => setIsCustomerModalOpen(false)}
+                    className="flex-1 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                  >
+                    Lưu
+                  </button>
+                </div>
+              </form>
+            </motion.div>
           </div>
-        </form>
-      </Modal>
+        )}
+      </AnimatePresence>
 
-      {/* Customer Modal */}
-      <Modal 
-        isOpen={isCustomerModalOpen} 
-        onClose={() => setIsCustomerModalOpen(false)}
-        title={editingId ? "CHỈNH SỬA KHÁCH HÀNG" : "THÊM KHÁCH HÀNG MỚI"}
-      >
-        <form onSubmit={handleAddCustomer} className="space-y-6">
-          <div className="space-y-4">
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Mã Khách Hàng</label>
-              <input 
-                type="text" required 
-                value={newCustomer.code}
-                onChange={e => setNewCustomer({...newCustomer, code: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Tên Khách Hàng</label>
-              <input 
-                type="text" required 
-                value={newCustomer.name}
-                onChange={e => setNewCustomer({...newCustomer, name: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-3 pt-6">
-            <button 
-              type="button" 
-              onClick={() => setIsCustomerModalOpen(false)}
-              className="px-6 py-3 border border-[#141414] text-xs font-bold uppercase tracking-widest hover:bg-gray-100 transition-all"
+      <AnimatePresence>
+        {isDeliveryNoteEditModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#E4E3E0] border border-[#141414] p-8 w-full max-w-2xl space-y-6"
             >
-              Hủy
-            </button>
-            <button 
-              type="submit"
-              className="px-8 py-3 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-widest hover:opacity-90 transition-all"
-            >
-              {editingId ? "Cập nhật" : "Lưu khách hàng"}
-            </button>
+              <h3 className="font-serif italic text-2xl">Chỉnh sửa dòng lệnh xuất</h3>
+              <form onSubmit={saveDeliveryNoteItemEdit} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Mã hàng</label>
+                    <input 
+                      disabled
+                      className="w-full bg-gray-200 border-b border-[#141414] py-1 text-sm outline-none opacity-60"
+                      value={tempDeliveryNoteItem.item}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Tên hàng</label>
+                    <input 
+                      disabled
+                      className="w-full bg-gray-200 border-b border-[#141414] py-1 text-sm outline-none opacity-60"
+                      value={tempDeliveryNoteItem.materialName}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">RPRO (OVN Production Order)</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={tempDeliveryNoteItem.ovnProductionOrder}
+                      onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, ovnProductionOrder: e.target.value, lotNo: ''})}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">NO (NoCode)</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={tempDeliveryNoteItem.noCode}
+                      onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, noCode: e.target.value, lotNo: ''})}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Qty ERP</label>
+                    <input 
+                      type="number"
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={tempDeliveryNoteItem.qtyErp}
+                      onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, qtyErp: Number(e.target.value)})}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Thực tế</label>
+                    <input 
+                      type="number"
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={tempDeliveryNoteItem.actualQty}
+                      onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, actualQty: Number(e.target.value)})}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Lot No</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={tempDeliveryNoteItem.lotNo}
+                      onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, lotNo: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Remark</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={tempDeliveryNoteItem.remark}
+                      onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, remark: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Vị trí</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
+                      value={tempDeliveryNoteItem.location}
+                      onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, location: e.target.value})}
+                    />
+                  </div>
+                </div>
+                {tempDeliveryNoteItem.stock === 'Không tìm thấy tồn kho phù hợp theo chỉ định' && (
+                  <div className="flex items-center gap-2 text-red-600 bg-red-50 p-2 border border-red-200">
+                    <AlertTriangle size={16} />
+                    <span className="text-xs font-bold">Cảnh báo: Không tìm thấy tồn kho phù hợp theo chỉ định</span>
+                  </div>
+                )}
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    type="button"
+                    onClick={() => setIsDeliveryNoteEditModalOpen(false)}
+                    className="flex-1 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
+                  >
+                    Lưu thay đổi
+                  </button>
+                </div>
+              </form>
+            </motion.div>
           </div>
-        </form>
-      </Modal>
+        )}
+      </AnimatePresence>
 
-      {/* Location Modal */}
-      <Modal 
-        isOpen={isLocationModalOpen} 
-        onClose={() => setIsLocationModalOpen(false)}
-        title={editingId ? "CHỈNH SỬA VỊ TRÍ" : "THÊM VỊ TRÍ MỚI"}
-      >
-        <form onSubmit={handleLocationSubmit} className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <label className="block text-[10px] font-bold uppercase mb-2">Mã QR (QRCode)</label>
-              <input 
-                type="text" required 
-                value={newLocationEntry.qrcode}
-                onChange={e => {
-                  const qrcode = e.target.value;
-                  const parsed = parseQRCode(qrcode);
-                  setNewLocationEntry({
-                    ...newLocationEntry,
-                    qrcode,
-                    sku: parsed?.sku || newLocationEntry.sku,
-                    partner: parsed?.partner || newLocationEntry.partner,
-                    date: parsed?.date || newLocationEntry.date
-                  });
-                }}
-                className="w-full p-3 border border-[#141414] text-xs font-mono focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Mã SP (SKU)</label>
-              <input 
-                type="text" required 
-                value={newLocationEntry.sku}
-                onChange={e => setNewLocationEntry({...newLocationEntry, sku: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Nhà Cung Cấp</label>
-              <input 
-                type="text" 
-                value={newLocationEntry.partner}
-                onChange={e => setNewLocationEntry({...newLocationEntry, partner: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Ngày</label>
-              <input 
-                type="text" 
-                value={newLocationEntry.date}
-                onChange={e => setNewLocationEntry({...newLocationEntry, date: e.target.value})}
-                placeholder="dd/mm/yyyy"
-                className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Vị Trí</label>
-              <input 
-                type="text" required 
-                value={newLocationEntry.location}
-                onChange={e => setNewLocationEntry({...newLocationEntry, location: e.target.value})}
-                className="w-full p-3 border border-[#141414] text-xs font-bold focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-2">Số lượng (Cuộn)</label>
-              <input 
-                type="number" 
-                value={newLocationEntry.quantity}
-                onChange={e => setNewLocationEntry({...newLocationEntry, quantity: parseInt(e.target.value) || 1})}
-                className="w-full p-3 border border-[#141414] text-xs font-bold focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold uppercase mb-2">Ghi Chú</label>
-            <textarea 
-              value={newLocationEntry.note}
-              onChange={e => setNewLocationEntry({...newLocationEntry, note: e.target.value})}
-              className="w-full p-3 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              rows={2}
-            />
-          </div>
-          <div className="flex justify-end gap-3 pt-6">
-            <button 
-              type="button" 
-              onClick={() => setIsLocationModalOpen(false)}
-              className="px-6 py-3 border border-[#141414] text-xs font-bold uppercase tracking-widest hover:bg-gray-100 transition-all"
+      <AnimatePresence>
+        {isDeliveryNoteDeleteConfirmOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#E4E3E0] border border-[#141414] p-8 w-full max-w-sm space-y-6 text-center"
             >
-              Hủy
-            </button>
-            <button 
-              type="submit"
-              className="px-8 py-3 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-widest hover:opacity-90 transition-all"
-            >
-              {editingId ? "Cập nhật" : "Lưu vị trí"}
-            </button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Delete Confirmation Modal */}
-      <Modal 
-        isOpen={isDeleteConfirmOpen} 
-        onClose={() => setIsDeleteConfirmOpen(false)}
-        title="XÁC NHẬN XÓA"
-      >
-        <div className="space-y-6">
-          <div className="flex items-center gap-4 text-red-600">
-            <AlertTriangle size={32} />
-            <div>
-              <p className="text-sm font-bold uppercase">Bạn có chắc chắn muốn xóa?</p>
-              <p className="text-xs opacity-60">Hành động này không thể hoàn tác.</p>
-            </div>
-          </div>
-          <div className="flex justify-end gap-3 pt-6">
-            <button 
-              onClick={() => setIsDeleteConfirmOpen(false)}
-              className="px-6 py-3 border border-[#141414] text-xs font-bold uppercase tracking-widest hover:bg-gray-100 transition-all"
-            >
-              Hủy
-            </button>
-            <button 
-              onClick={confirmDelete}
-              className="px-8 py-3 bg-red-600 text-white text-xs font-bold uppercase tracking-widest hover:bg-red-700 transition-all"
-            >
-              Xác nhận xóa
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Delivery Note Delete Confirmation Modal */}
-      <Modal 
-        isOpen={isDeliveryNoteDeleteConfirmOpen} 
-        onClose={() => setIsDeliveryNoteDeleteConfirmOpen(false)}
-        title="XÓA MỤC PHIẾU GIAO NHẬN"
-      >
-        <div className="space-y-6">
-          <div className="flex items-center gap-4 text-red-600">
-            <AlertTriangle size={32} />
-            <div>
-              <p className="text-sm font-bold uppercase">Xác nhận xóa dòng này khỏi phiếu?</p>
-              <p className="text-xs opacity-60">Dữ liệu sẽ bị xóa khỏi danh sách đang soạn.</p>
-            </div>
-          </div>
-          <div className="flex justify-end gap-3 pt-6">
-            <button 
-              onClick={() => setIsDeliveryNoteDeleteConfirmOpen(false)}
-              className="px-6 py-3 border border-[#141414] text-xs font-bold uppercase tracking-widest hover:bg-gray-100 transition-all"
-            >
-              Hủy
-            </button>
-            <button 
-              onClick={confirmDeleteDeliveryNoteItem}
-              className="px-8 py-3 bg-red-600 text-white text-xs font-bold uppercase tracking-widest hover:bg-red-700 transition-all"
-            >
-              Xóa dòng
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Delivery Note Edit Modal */}
-      <Modal 
-        isOpen={isDeliveryNoteEditModalOpen} 
-        onClose={() => setIsDeliveryNoteEditModalOpen(false)}
-        title="CHỈNH SỬA DÒNG LỆNH"
-      >
-        <form onSubmit={saveDeliveryNoteItemEdit} className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <label className="block text-[10px] font-bold uppercase mb-1">Tên Hàng Hóa</label>
-              <input 
-                type="text" 
-                value={tempDeliveryNoteItem.materialName}
-                onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, materialName: e.target.value})}
-                className="w-full p-2 border border-[#141414] text-xs focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-1">Mã Hàng (SKU)</label>
-              <input 
-                type="text" 
-                value={tempDeliveryNoteItem.item}
-                onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, item: e.target.value})}
-                className="w-full p-2 border border-[#141414] text-xs font-mono focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-1">S.Lượng ERP</label>
-              <input 
-                type="number" 
-                value={tempDeliveryNoteItem.qtyErp}
-                onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, qtyErp: Number(e.target.value)})}
-                className="w-full p-2 border border-[#141414] text-xs font-bold focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-1">OVN SO</label>
-              <input 
-                type="text" 
-                value={tempDeliveryNoteItem.ovnSaleOrder}
-                onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, ovnSaleOrder: e.target.value})}
-                className="w-full p-2 border border-[#141414] text-xs font-mono focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-1">OVN Production Order</label>
-              <input 
-                type="text" 
-                value={tempDeliveryNoteItem.ovnProductionOrder}
-                onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, ovnProductionOrder: e.target.value})}
-                className="w-full p-2 border border-[#141414] text-xs font-mono focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-1">No Code (Mã KH)</label>
-              <input 
-                type="text" 
-                value={tempDeliveryNoteItem.noCode}
-                onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, noCode: e.target.value})}
-                className="w-full p-2 border border-[#141414] text-xs font-mono focus:ring-1 focus:ring-[#141414] outline-none" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase mb-1">Lot No</label>
-              <input 
-                type="text" 
-                value={tempDeliveryNoteItem.lotNo}
-                onChange={e => setTempDeliveryNoteItem({...tempDeliveryNoteItem, lotNo: e.target.value})}
-                className="w-full p-2 border border-blue-600 text-xs font-bold bg-blue-50 focus:ring-1 focus:ring-blue-600 outline-none" 
-                placeholder="Nhập hoặc để tự động..."
-              />
-            </div>
-            <div className="col-span-2 p-3 bg-gray-50 border border-dashed border-[#141414]">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-[10px] font-bold uppercase opacity-60">Thông tin tồn kho gợi ý:</span>
-                <span className="text-[10px] font-bold text-[#1a5f7a]">{tempDeliveryNoteItem.stock || 'Chưa tìm thấy tồn'}</span>
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto">
+                <Trash2 size={32} />
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-bold uppercase opacity-60">Vị trí gợi ý:</span>
-                <span className="text-[10px] font-bold">{tempDeliveryNoteItem.location || 'N/A'}</span>
+              <div className="space-y-2">
+                <h3 className="font-serif italic text-2xl">Xác nhận xóa dòng</h3>
+                <p className="text-sm opacity-70">
+                  Bạn có chắc chắn muốn xóa dòng này khỏi lệnh xuất kho không?
+                </p>
+              </div>
+              <div className="flex gap-4 pt-2">
+                <button 
+                  onClick={() => {
+                    setIsDeliveryNoteDeleteConfirmOpen(false);
+                    setDeliveryNoteDeleteId(null);
+                  }}
+                  className="flex-1 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                >
+                  Hủy
+                </button>
+                <button 
+                  onClick={confirmDeleteDeliveryNoteItem}
+                  className="flex-1 py-2 bg-red-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-red-700 transition-colors"
+                >
+                  Xác nhận xóa
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isDeleteConfirmOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#E4E3E0] border border-[#141414] p-8 w-full max-w-sm space-y-6 text-center"
+            >
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto">
+                <AlertTriangle size={32} />
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-serif italic text-2xl">Xác nhận xóa</h3>
+                <p className="text-sm opacity-70">
+                  Bạn có chắc chắn muốn xóa {deleteTarget?.id === 'wipe_all_data' ? 'TOÀN BỘ dữ liệu Tồn kho, Nhập kho, Xuất kho và Vị trí' : deleteTarget?.id === 'bulk' ? `hàng loạt (${selectedRows.length} mục)` : 'mục này'} không? Hành động này không thể hoàn tác.
+                </p>
+              </div>
+              <div className="flex gap-4 pt-2">
+                <button 
+                  onClick={() => {
+                    setIsDeleteConfirmOpen(false);
+                    setDeleteTarget(null);
+                  }}
+                  className="flex-1 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
+                >
+                  Hủy
+                </button>
+                <button 
+                  onClick={confirmDelete}
+                  className="flex-1 py-2 bg-red-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-red-700 transition-colors"
+                >
+                  Xác nhận xóa
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {isSetupModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white border border-[#141414] w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+          >
+            <div className="bg-[#141414] text-[#E4E3E0] p-4 flex justify-between items-center sticky top-0">
+              <h3 className="text-xs font-bold uppercase tracking-widest">HƯỚNG DẪN THIẾT LẬP SUPABASE</h3>
+              <button onClick={() => setIsSetupModalOpen(false)} className="hover:opacity-70">
+                <Plus size={20} className="rotate-45" />
+              </button>
+            </div>
+            <div className="p-8 space-y-6">
+              <section className="space-y-3">
+                <h4 className="text-sm font-bold uppercase border-b border-gray-200 pb-2">Bước 1: Tạo dự án Supabase</h4>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Truy cập <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-blue-600 underline">supabase.com</a>, tạo một dự án mới. Sau khi tạo xong, vào phần <strong>Project Settings &gt; API</strong> để lấy <code>Project URL</code> và <code>anon public key</code>.
+                </p>
+              </section>
+
+              <section className="space-y-3">
+                <h4 className="text-sm font-bold uppercase border-b border-gray-200 pb-2">Bước 2: Cấu hình biến môi trường</h4>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Mở menu <strong>Settings</strong> (biểu tượng bánh răng) ở góc trên bên phải của AI Studio Build, sau đó thêm 2 biến sau:
+                </p>
+                <div className="bg-gray-100 p-3 font-mono text-[10px] space-y-1 border border-gray-200">
+                  <p>VITE_SUPABASE_URL = [Project URL của bạn]</p>
+                  <p>VITE_SUPABASE_ANON_KEY = [anon public key của bạn]</p>
+                </div>
+                <p className="text-[10px] text-amber-600 italic">
+                  * Lưu ý: Nếu bạn deploy lên Vercel, hãy đảm bảo các biến này cũng được thêm vào Vercel Dashboard với tiền tố <code>VITE_</code>.
+                </p>
+              </section>
+
+              <section className="space-y-3">
+                <h4 className="text-sm font-bold uppercase border-b border-gray-200 pb-2">Bước 3: Khởi tạo Database</h4>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Vào phần <strong>SQL Editor</strong> trong Supabase Dashboard, tạo một query mới và dán nội dung từ file <code>supabase_schema.sql</code> trong project này vào để tạo các bảng cần thiết.
+                </p>
+              </section>
+
+              <div className="pt-4 flex justify-end">
+                <button 
+                  onClick={() => setIsSetupModalOpen(false)}
+                  className="px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-widest hover:opacity-90 transition-opacity"
+                >
+                  Đã hiểu
+                </button>
               </div>
             </div>
-          </div>
-          <div className="flex justify-end gap-3 pt-6">
-            <button 
-              type="button" 
-              onClick={() => setIsDeliveryNoteEditModalOpen(false)}
-              className="px-6 py-2 border border-[#141414] text-xs font-bold uppercase tracking-widest hover:bg-gray-100 transition-all"
-            >
-              Hủy
+          </motion.div>
+        </div>
+      )}
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className={cn(
+              "fixed bottom-8 right-8 px-6 py-4 rounded shadow-2xl flex items-center gap-3 z-50",
+              notification.type === 'error' ? "bg-red-600 text-white" : "bg-green-600 text-white"
+            )}
+          >
+            {notification.type === 'error' ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
+            <span className="font-bold">{notification.message}</span>
+            <button onClick={() => setNotification(null)} className="ml-4 hover:opacity-70">
+              <X size={16} />
             </button>
-            <button 
-              type="submit"
-              className="px-8 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-widest hover:opacity-90 transition-all"
-            >
-              Cập nhật dòng
-            </button>
-          </div>
-        </form>
-      </Modal>
+          </motion.div>
+        )}
+      </AnimatePresence>
+        </div>
+      </main>
     </div>
+
   );
 }
 
-// Sub-components
 function NavItem({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
   return (
     <button 
       onClick={onClick}
       className={cn(
-        "w-full flex items-center gap-4 px-4 py-3 text-xs font-bold uppercase tracking-widest transition-all",
+        "w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all",
         active 
-          ? "bg-[#141414] text-[#E4E3E0] shadow-lg translate-x-1" 
-          : "text-[#141414]/60 hover:bg-[#141414]/5 hover:text-[#141414]"
+          ? "bg-[#141414] text-[#E4E3E0]" 
+          : "hover:bg-[#141414]/5 opacity-60 hover:opacity-100"
       )}
     >
-      <span className={cn("transition-transform", active && "scale-110")}>{icon}</span>
-      <span className="line-clamp-1">{label}</span>
+      {icon}
+      {label}
     </button>
   );
 }
 
-function StatCard({ label, value, bgColor, textColor }: { label: string, value: number, bgColor: string, textColor: string }) {
+function StatCard({ label, value, alert = false, bgColor = "bg-white/50", textColor = "text-[#141414]" }: { label: string, value: number | string, alert?: boolean, bgColor?: string, textColor?: string }) {
   return (
-    <div className={cn("p-6 border border-[#141414] flex flex-col justify-between h-32 sm:h-40 transition-transform hover:-translate-y-1", bgColor)}>
-      <p className={cn("text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.2em]", textColor)}>{label}</p>
-      <p className={cn("text-3xl sm:text-4xl font-bold tracking-tighter", textColor)}>{value}</p>
-    </div>
-  );
-}
-
-function Modal({ isOpen, onClose, title, children }: { isOpen: boolean, onClose: () => void, title: string, children: React.ReactNode }) {
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="bg-[#E4E3E0] w-full max-w-2xl border-2 border-[#141414] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
-      >
-        <div className="p-6 border-b border-[#141414] flex justify-between items-center bg-[#141414] text-[#E4E3E0]">
-          <h3 className="text-xs font-bold uppercase tracking-widest">{title}</h3>
-          <button onClick={onClose} className="p-1 hover:rotate-90 transition-transform">
-            <X size={20} />
-          </button>
-        </div>
-        <div className="p-8 overflow-y-auto">
-          {children}
-        </div>
-      </motion.div>
+    <div className={cn(
+      "border border-[#141414] p-4 h-32 flex flex-col gap-1",
+      bgColor,
+      alert && "border-red-500 bg-red-50/50"
+    )}>
+      <p className={cn("text-[9px] font-bold uppercase tracking-wider", textColor)}>{label}</p>
+      <p className={cn(
+        "text-lg font-bold",
+        textColor,
+        alert && "text-red-600"
+      )}>
+        {value}
+      </p>
     </div>
   );
 }
