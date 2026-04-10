@@ -1482,7 +1482,7 @@ export default function App() {
     
     const summary = new Map<string, number>();
     skuInventory.forEach(item => {
-      const type = item.loaiChiDinh || 'N/A';
+      const type = item.loaiChiDinh || 'Chung';
       summary.set(type, (summary.get(type) || 0) + item.currentStock);
     });
     
@@ -1490,6 +1490,69 @@ export default function App() {
       .map(([type, qty]) => `${type}: ${qty.toLocaleString()}`)
       .join(' | ');
   }, [inventory]);
+
+  const analyzeGroupStock = useCallback((sku: string, groupItems: DeliveryNoteItem[]) => {
+    const skuInventory = inventory.filter(item => item.sku.toLowerCase().trim() === sku.toLowerCase().trim());
+    if (skuInventory.length === 0) {
+      return { 
+        detail: 'Không có tồn', 
+        shortage: groupItems.reduce((sum, gi) => sum + (gi.actualQty || gi.qtyErp), 0) 
+      };
+    }
+
+    // Map of designation code -> current stock
+    const remainingByCode = new Map<string, number>();
+    skuInventory.forEach(item => {
+      const code = (item.designationCode || '').toLowerCase().trim();
+      remainingByCode.set(code, (remainingByCode.get(code) || 0) + item.currentStock);
+    });
+
+    let totalShortage = 0;
+
+    groupItems.forEach(gi => {
+      const needed = gi.actualQty || gi.qtyErp;
+      const targetRpro = (gi.ovnProductionOrder || '').toLowerCase().trim();
+      const targetSo = (gi.ovnSaleOrder || '').toLowerCase().trim();
+      const targetNo = (gi.noCode || '').toLowerCase().trim();
+
+      // Find a matching designation code
+      let matchedCode = '';
+      if (targetRpro && remainingByCode.has(targetRpro)) matchedCode = targetRpro;
+      else if (targetSo && remainingByCode.has(targetSo)) matchedCode = targetSo;
+      else if (targetNo && remainingByCode.has(targetNo)) matchedCode = targetNo;
+
+      if (matchedCode) {
+        const available = remainingByCode.get(matchedCode) || 0;
+        if (available >= needed) {
+          remainingByCode.set(matchedCode, available - needed);
+        } else {
+          const shortage = needed - available;
+          remainingByCode.set(matchedCode, 0);
+          
+          // Try to use general stock for the rest
+          const generalAvailable = remainingByCode.get('') || 0;
+          if (generalAvailable >= shortage) {
+            remainingByCode.set('', generalAvailable - shortage);
+          } else {
+            remainingByCode.set('', 0);
+            totalShortage += (shortage - generalAvailable);
+          }
+        }
+      } else {
+        // No specific match, try general stock
+        const generalAvailable = remainingByCode.get('') || 0;
+        if (generalAvailable >= needed) {
+          remainingByCode.set('', generalAvailable - needed);
+        } else {
+          remainingByCode.set('', 0);
+          totalShortage += (needed - generalAvailable);
+        }
+      }
+    });
+
+    const detail = getStockDetailByDesignation(sku);
+    return { detail, shortage: totalShortage };
+  }, [inventory, getStockDetailByDesignation]);
 
   const getLocationByItemAndLot = useCallback((sku: string, lotNo: string) => {
     if (!sku) return 'Chưa có vị trí';
@@ -3751,38 +3814,31 @@ export default function App() {
                                     getLocationByItemAndLot(item.item, item.lotNo)
                                   )}
                                 </td>
-                                {isFirstInItemGroup ? (
-                                  <td rowSpan={itemGroupSize} className={cn(
-                                    "border border-[#141414] p-2 bg-blue-50/30 align-middle",
-                                    getStockDetailByDesignation(item.item) === 'Không có tồn' ? "bg-red-500 text-white font-bold" : ""
-                                  )}>
-                                    <div className="flex flex-col gap-1">
-                                      <div className="font-medium">{getStockDetailByDesignation(item.item)}</div>
-                                      {(() => {
-                                        const groupItems = filteredDeliveryNotes.slice(index, index + itemGroupSize);
-                                        const totalNeeded = groupItems.reduce((sum, gi) => sum + (gi.actualQty || gi.qtyErp), 0);
-                                        const totalAssigned = groupItems.reduce((sum, gi) => sum + (gi.actualIssuedQty || 0), 0);
-                                        const shortage = Math.max(0, totalNeeded - totalAssigned);
-                                        
-                                        if (shortage > 0) {
-                                          return (
-                                            <div className="text-[10px] text-red-600 font-bold bg-red-50 px-1 rounded border border-red-200 w-fit">
-                                              THIẾU: {shortage.toLocaleString()}
-                                            </div>
-                                          );
-                                        }
-                                        if (groupLots.length > 0) {
-                                          return (
-                                            <div className="text-[10px] text-green-600 font-bold bg-green-50 px-1 rounded border border-green-200 w-fit">
-                                              ĐỦ TỒN
-                                            </div>
-                                          );
-                                        }
-                                        return null;
-                                      })()}
-                                    </div>
-                                  </td>
-                                ) : null}
+                                {isFirstInItemGroup ? (() => {
+                                  const groupItems = filteredDeliveryNotes.slice(index, index + itemGroupSize);
+                                  const analysis = analyzeGroupStock(item.item, groupItems);
+                                  
+                                  return (
+                                    <td rowSpan={itemGroupSize} className={cn(
+                                      "border border-[#141414] p-2 bg-blue-50/30 align-middle",
+                                      analysis.detail === 'Không có tồn' ? "bg-red-500 text-white font-bold" : ""
+                                    )}>
+                                      <div className="flex flex-col gap-1">
+                                        <div className="font-medium">{analysis.detail}</div>
+                                        {analysis.shortage > 0 && (
+                                          <div className="text-[10px] text-red-600 font-bold bg-red-50 px-1 rounded border border-red-200 w-fit">
+                                            THIẾU: {analysis.shortage.toLocaleString()}
+                                          </div>
+                                        )}
+                                        {analysis.shortage === 0 && groupLots.length > 0 && (
+                                          <div className="text-[10px] text-green-600 font-bold bg-green-50 px-1 rounded border border-green-200 w-fit">
+                                            ĐỦ TỒN
+                                          </div>
+                                        )}
+                                      </div>
+                                    </td>
+                                  );
+                                })() : null}
                                 <td className="border border-[#141414] p-2 no-print text-center">
                                   <div className="flex items-center justify-center gap-2">
                                     <button 
