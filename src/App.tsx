@@ -104,6 +104,13 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [hasLoadedData, setHasLoadedData] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const syncQueue = useRef<Promise<any>>(Promise.resolve());
+
+  const queueSync = useCallback((syncFn: () => Promise<any>) => {
+    syncQueue.current = syncQueue.current.then(syncFn).catch(err => {
+      console.error('Sync error in queue:', err);
+    });
+  }, []);
 
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: ''
@@ -329,33 +336,35 @@ export default function App() {
   useEffect(() => {
     if (!hasLoadedData || !isSupabaseConfigured) return;
 
-    const timeoutId = setTimeout(async () => {
+    const timeoutId = setTimeout(() => {
       if (!isOnline) {
         console.log('App is offline, skipping sync until network is back. Data is safely cached locally.');
         return;
       }
 
-      setIsSaving(true);
-      try {
-        await Promise.all([
-          api.products.upsertAll(products),
-          api.transactions.upsertAll(transactions),
-          api.customers.upsertAll(customers),
-          api.locationEntries.upsertAll([...locationEntries, ...locationInventoryEntries]),
-          api.deliveryNotes.upsertAll(deliveryNotes),
-          api.savedDeliveryNotes.upsertAll(savedDeliveryNotes),
-          api.deliveryNoteHeader.upsert({
-            docCode: deliveryNoteHeader.documentCode,
-            dept: deliveryNoteHeader.dept,
-            to: deliveryNoteHeader.to,
-            date: deliveryNoteHeader.date
-          })
-        ]);
-      } catch (error) {
-        console.error('Lỗi khi tự động lưu dữ liệu:', error);
-      } finally {
-        setIsSaving(false);
-      }
+      queueSync(async () => {
+        setIsSaving(true);
+        try {
+          await Promise.all([
+            api.products.upsertAll(products),
+            api.transactions.upsertAll(transactions),
+            api.customers.upsertAll(customers),
+            api.locationEntries.upsertAll([...locationEntries, ...locationInventoryEntries]),
+            api.deliveryNotes.upsertAll(deliveryNotes),
+            api.savedDeliveryNotes.upsertAll(savedDeliveryNotes),
+            api.deliveryNoteHeader.upsert({
+              docCode: deliveryNoteHeader.documentCode,
+              dept: deliveryNoteHeader.dept,
+              to: deliveryNoteHeader.to,
+              date: deliveryNoteHeader.date
+            })
+          ]);
+        } catch (error) {
+          console.error('Lỗi khi tự động lưu dữ liệu:', error);
+        } finally {
+          setIsSaving(false);
+        }
+      });
     }, 3000);
 
     return () => clearTimeout(timeoutId);
@@ -1353,32 +1362,6 @@ export default function App() {
     }
 
     setSelectedRows([]);
-  };
-
-  const handleSaveAll = async () => {
-    setIsSaving(true);
-    try {
-      await Promise.all([
-        api.products.upsertAll(products),
-        api.transactions.upsertAll(transactions),
-        api.customers.upsertAll(customers),
-        api.locationEntries.upsertAll([...locationEntries, ...locationInventoryEntries]),
-        api.deliveryNotes.upsertAll(deliveryNotes),
-        api.savedDeliveryNotes.upsertAll(savedDeliveryNotes),
-        api.deliveryNoteHeader.upsert({
-          docCode: deliveryNoteHeader.documentCode,
-          dept: deliveryNoteHeader.dept,
-          to: deliveryNoteHeader.to,
-          date: deliveryNoteHeader.date
-        })
-      ]);
-      showNotification('Dữ liệu đã được lưu trữ thành công!');
-    } catch (error) {
-      console.error('Lỗi khi lưu dữ liệu:', error);
-      showNotification('Có lỗi xảy ra khi lưu dữ liệu. Vui lòng kiểm tra lại kết nối.', 'error');
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   const handleWipeAllData = async () => {
@@ -2683,21 +2666,28 @@ export default function App() {
 
           <div className="flex items-center gap-2 sm:gap-4">
             <div className="hidden sm:flex items-center gap-2 sm:gap-4">
-              <button 
-                onClick={handleSaveAll}
-                disabled={isSaving}
-                className={`flex items-center gap-2 px-3 sm:px-4 py-2 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-80 ${!isOnline ? 'bg-red-600 text-white' : isSaving ? 'bg-[#ff9900] text-black' : 'bg-[#141414] text-[#E4E3E0] hover:opacity-90'}`}
-                title={!isOnline ? "Hoạt động Ngoại Tuyến (Offline)" : "Hệ thống đã bật tự động lưu"}
+              <div 
+                className={cn(
+                  "flex items-center gap-2 px-3 sm:px-4 py-2 border transition-colors cursor-default",
+                  !isOnline 
+                    ? "border-red-500 text-red-600 bg-red-50" 
+                    : isSaving 
+                      ? "border-amber-500 text-amber-600 bg-amber-50" 
+                      : "border-green-500 text-green-600 bg-green-50"
+                )}
+                title={!isOnline ? "Hoạt động Ngoại Tuyến (Offline)" : isSaving ? "Đang đồng bộ..." : "Đã đồng bộ với Supabase"}
               >
                 {!isOnline ? (
                   <WifiOff size={14} />
                 ) : isSaving ? (
-                  <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                  <div className="w-3 h-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
                 ) : (
-                  <Save size={14} />
+                  <CheckCircle2 size={14} />
                 )}
-                <span className="hidden md:inline">{isSaving ? 'Đang lưu...' : 'Lưu tất cả'}</span>
-              </button>
+                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider">
+                  {!isOnline ? 'Ngoại tuyến' : isSaving ? 'Đang lưu...' : 'Đã lưu'}
+                </span>
+              </div>
               
               {selectedRows.length > 0 && (
                 <button 
@@ -2724,7 +2714,7 @@ export default function App() {
                 title="Cập nhật file"
               >
                 <FileUp size={14} />
-                <span className="hidden md:inline">Cập nhật file</span>
+                <span className="inline">Cập nhật file</span>
               </button>
               <button className="p-2 border border-[#141414] hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
                 <Filter size={18} />
@@ -4895,10 +4885,18 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Hidden File Input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        className="hidden"
+        accept=".csv,.xlsx,.xls,.xlsm"
+      />
         </div>
       </main>
     </div>
-
   );
 }
 
