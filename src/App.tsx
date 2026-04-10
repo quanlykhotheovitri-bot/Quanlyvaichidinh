@@ -1273,11 +1273,19 @@ export default function App() {
     const subTab = locationSubTab;
 
     if (currentTab === 'inventory') {
+      const inventoryMap = new Map<string, InventoryItem>(inventory.map(i => [i.id, i]));
       const productIds = idsToDelete.map(batchKey => {
-        const item = inventory.find(i => i.id === batchKey);
+        const item = inventoryMap.get(batchKey);
         return item?.productId;
       }).filter(Boolean) as string[];
       const uniqueProductIds = [...new Set(productIds)];
+      
+      if (uniqueProductIds.length === 0) {
+        setSelectedRows([]);
+        setIsDeleteConfirmOpen(false);
+        return;
+      }
+
       setProducts(prev => prev.filter(p => !uniqueProductIds.includes(p.id)));
       setTransactions(prev => prev.filter(t => !uniqueProductIds.includes(t.productId)));
       
@@ -1286,8 +1294,8 @@ export default function App() {
         await api.products.deleteMany(uniqueProductIds);
         showNotification(`Đã xóa ${uniqueProductIds.length} mặt hàng thành công.`);
       } catch (error: any) {
-        console.error('Error in bulk delete:', error);
-        showNotification('Lỗi khi xóa hàng loạt: ' + (error.message || ''), 'error');
+        console.error('Error in bulk delete inventory:', error);
+        showNotification('Lỗi khi xóa hàng loạt tồn kho: ' + (error.message || 'Vui lòng kiểm tra kết nối mạng.'), 'error');
         loadData();
       }
     } else if (currentTab === 'inbound' || currentTab === 'outbound') {
@@ -1382,15 +1390,17 @@ export default function App() {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
-    if (deleteTarget.id === 'bulk') {
-      await handleBulkDelete();
-    } else if (deleteTarget.id === 'wipe_all_data') {
-      await handleWipeAllData();
-    } else {
-      await handleDelete(deleteTarget.id, deleteTarget.type as any);
-    }
+    const target = { ...deleteTarget };
     setIsDeleteConfirmOpen(false);
     setDeleteTarget(null);
+
+    if (target.id === 'bulk') {
+      await handleBulkDelete();
+    } else if (target.id === 'wipe_all_data') {
+      await handleWipeAllData();
+    } else {
+      await handleDelete(target.id, target.type as any);
+    }
   };
 
   const toggleRowSelection = (id: string) => {

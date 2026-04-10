@@ -34,6 +34,16 @@ const updateCacheSingle = <T extends {id: string}>(key: string, item: T) => {
   setCache(key, current, 30 * 24 * 3600000);
 };
 
+const chunkArray = <T>(array: T[], size: number): T[][] => {
+  const result: T[][] = [];
+  for (let i = 0; i < array.length; i += size) {
+    result.push(array.slice(i, i + size));
+  }
+  return result;
+};
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export const api = {
   products: {
     async getAll(): Promise<Product[]> {
@@ -125,10 +135,14 @@ export const api = {
       const currentProducts = getCache<Product[]>('products') || [];
       setCache('products', currentProducts.filter(p => !ids.includes(p.id)), 30 * 24 * 3600000);
       
-      const { error } = await supabase.from('products').delete().in('id', ids);
-      if (error) {
-        console.error('Database error during products bulk deletion:', error);
-        throw error;
+      const chunks = chunkArray(ids, 100);
+      for (const chunk of chunks) {
+        const { error } = await supabase.from('products').delete().in('id', chunk);
+        if (error) {
+          console.error('Database error during products bulk deletion:', error);
+          throw error;
+        }
+        await delay(50);
       }
     },
     async deleteAll(): Promise<void> {
@@ -227,10 +241,14 @@ export const api = {
       const currentTransactions = getCache<Transaction[]>('transactions') || [];
       setCache('transactions', currentTransactions.filter(t => !ids.includes(t.id)), 30 * 24 * 3600000);
       
-      const { error } = await supabase.from('transactions').delete().in('id', ids);
-      if (error) {
-        console.error('Database error during transactions bulk deletion:', error);
-        throw error;
+      const chunks = chunkArray(ids, 100);
+      for (const chunk of chunks) {
+        const { error } = await supabase.from('transactions').delete().in('id', chunk);
+        if (error) {
+          console.error('Database error during transactions bulk deletion:', error);
+          throw error;
+        }
+        await delay(50);
       }
     },
     async deleteByProductId(productId: string): Promise<void> {
@@ -250,10 +268,14 @@ export const api = {
       const currentTransactions = getCache<Transaction[]>('transactions') || [];
       setCache('transactions', currentTransactions.filter(t => !productIds.includes(t.productId)), 30 * 24 * 3600000);
       
-      const { error } = await supabase.from('transactions').delete().in('productid', productIds);
-      if (error) {
-        console.error('Database error during bulk transactions deletion by product ids:', error);
-        throw error;
+      const chunks = chunkArray(productIds, 100);
+      for (const chunk of chunks) {
+        const { error } = await supabase.from('transactions').delete().in('productid', chunk);
+        if (error) {
+          console.error('Database error during bulk transactions deletion by product ids:', error);
+          throw error;
+        }
+        await delay(50);
       }
     },
     async deleteAll(): Promise<void> {
@@ -313,10 +335,14 @@ export const api = {
       const currentCustomers = getCache<Customer[]>('customers') || [];
       setCache('customers', currentCustomers.filter(c => !ids.includes(c.id)), 30 * 24 * 3600000);
       
-      const { error } = await supabase.from('customers').delete().in('id', ids);
-      if (error) {
-        console.error('Database error during customers bulk deletion:', error);
-        throw error;
+      const chunks = chunkArray(ids, 100);
+      for (const chunk of chunks) {
+        const { error } = await supabase.from('customers').delete().in('id', chunk);
+        if (error) {
+          console.error('Database error during customers bulk deletion:', error);
+          throw error;
+        }
+        await delay(50);
       }
     }
   },
@@ -399,10 +425,14 @@ export const api = {
       const currentNotes = getCache<DeliveryNoteItem[]>('delivery_notes') || [];
       setCache('delivery_notes', currentNotes.filter(n => !ids.includes(n.id)), 30 * 24 * 3600000);
       
-      const { error } = await supabase.from('delivery_notes').delete().in('id', ids);
-      if (error) {
-        console.error('Database error during delivery notes bulk deletion:', error);
-        throw error;
+      const chunks = chunkArray(ids, 100);
+      for (const chunk of chunks) {
+        const { error } = await supabase.from('delivery_notes').delete().in('id', chunk);
+        if (error) {
+          console.error('Database error during delivery notes bulk deletion:', error);
+          throw error;
+        }
+        await delay(50);
       }
     },
     async deleteAll(): Promise<void> {
@@ -501,10 +531,14 @@ export const api = {
       setCache('location_entries', currentEntries.filter(e => !ids.includes(e.id)), 30 * 24 * 3600000);
       
       try {
-        const { error } = await supabase.from('location_entries').delete().in('id', ids);
-        if (error) {
-          console.error('Database error during location entries bulk deletion:', error);
-          throw error;
+        const chunks = chunkArray(ids, 100);
+        for (const chunk of chunks) {
+          const { error } = await supabase.from('location_entries').delete().in('id', chunk);
+          if (error) {
+            console.error('Database error during location entries bulk deletion:', error);
+            throw error;
+          }
+          await delay(50);
         }
       } catch (err) {
         console.warn('Offline mode: location entries bulk deletion saved locally');
@@ -530,10 +564,14 @@ export const api = {
       setCache('location_entries', currentEntries.filter(e => !qrcodes.includes(e.qrcode)), 30 * 24 * 3600000);
       
       try {
-        const { error } = await supabase.from('location_entries').delete().in('qrcode', qrcodes);
-        if (error) {
-          console.error('Database error during location entries bulk deletion by qrcodes:', error);
-          throw error;
+        const chunks = chunkArray(qrcodes, 100);
+        for (const chunk of chunks) {
+          const { error } = await supabase.from('location_entries').delete().in('qrcode', chunk);
+          if (error) {
+            console.error('Database error during location entries bulk deletion by qrcodes:', error);
+            throw error;
+          }
+          await delay(50);
         }
       } catch (err) {
         console.warn('Offline mode: location entries bulk deletion by qrcodes saved locally');
@@ -595,10 +633,14 @@ export const api = {
       const currentNotes = getCache<{id: string, date: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes') || [];
       setCache('saved_delivery_notes', currentNotes.filter(n => !ids.includes(n.id)), 30 * 24 * 3600000);
       
-      const { error } = await supabase.from('saved_delivery_notes').delete().in('id', ids);
-      if (error) {
-        console.error('Database error during saved delivery notes bulk deletion:', error);
-        throw error;
+      const chunks = chunkArray(ids, 100);
+      for (const chunk of chunks) {
+        const { error } = await supabase.from('saved_delivery_notes').delete().in('id', chunk);
+        if (error) {
+          console.error('Database error during saved delivery notes bulk deletion:', error);
+          throw error;
+        }
+        await delay(50);
       }
     }
   },
