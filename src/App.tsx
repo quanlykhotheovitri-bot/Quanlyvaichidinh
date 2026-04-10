@@ -1432,6 +1432,21 @@ export default function App() {
     return Object.values(batches);
   }, [products, transactions, extractDateFromLot]);
 
+  const getStockDetailByDesignation = useCallback((sku: string) => {
+    const skuInventory = inventory.filter(item => item.sku.toLowerCase().trim() === sku.toLowerCase().trim());
+    if (skuInventory.length === 0) return 'Không có tồn';
+    
+    const summary = new Map<string, number>();
+    skuInventory.forEach(item => {
+      const type = item.loaiChiDinh || 'N/A';
+      summary.set(type, (summary.get(type) || 0) + item.currentStock);
+    });
+    
+    return Array.from(summary.entries())
+      .map(([type, qty]) => `${type}: ${qty.toLocaleString()}`)
+      .join(' | ');
+  }, [inventory]);
+
   const filteredInventory = useMemo(() => {
     const query = searchQuery.toLowerCase();
     return inventory.filter(item => 
@@ -3539,7 +3554,7 @@ export default function App() {
                                         groupLots.reduce((sum, lot) => sum + lot.qty, 0).toLocaleString()
                                       ) : (
                                         filteredDeliveryNotes.slice(index, index + itemGroupSize)
-                                          .reduce((sum, gi) => sum + (gi.actualIssuedQty || 0), 0).toLocaleString()
+                                          .reduce((sum, gi) => sum + (gi.actualQty || 0), 0).toLocaleString()
                                       )}
                                     </td>
                                   </>
@@ -3592,22 +3607,38 @@ export default function App() {
                                     item.location
                                   )}
                                 </td>
-                                <td className={cn(
-                                  "border border-[#141414] p-2 bg-blue-50/30",
-                                  item.stock === 'Không có tồn' ? "bg-red-500 text-white font-bold" : ""
-                                )}>
-                                  {item.assignedLots && item.assignedLots.length > 0 ? (
+                                {isFirstInItemGroup ? (
+                                  <td rowSpan={itemGroupSize} className={cn(
+                                    "border border-[#141414] p-2 bg-blue-50/30 align-middle",
+                                    getStockDetailByDesignation(item.item) === 'Không có tồn' ? "bg-red-500 text-white font-bold" : ""
+                                  )}>
                                     <div className="flex flex-col gap-1">
-                                      {item.assignedLots.map((lot, idx) => (
-                                        <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
-                                          {lot.stock}
-                                        </div>
-                                      ))}
+                                      <div className="font-medium">{getStockDetailByDesignation(item.item)}</div>
+                                      {(() => {
+                                        const groupItems = filteredDeliveryNotes.slice(index, index + itemGroupSize);
+                                        const totalNeeded = groupItems.reduce((sum, gi) => sum + (gi.actualQty || gi.qtyErp), 0);
+                                        const totalAssigned = groupItems.reduce((sum, gi) => sum + (gi.actualIssuedQty || 0), 0);
+                                        const shortage = Math.max(0, totalNeeded - totalAssigned);
+                                        
+                                        if (shortage > 0) {
+                                          return (
+                                            <div className="text-[10px] text-red-600 font-bold bg-red-50 px-1 rounded border border-red-200 w-fit">
+                                              THIẾU: {shortage.toLocaleString()}
+                                            </div>
+                                          );
+                                        }
+                                        if (groupLots.length > 0) {
+                                          return (
+                                            <div className="text-[10px] text-green-600 font-bold bg-green-50 px-1 rounded border border-green-200 w-fit">
+                                              ĐỦ TỒN
+                                            </div>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
                                     </div>
-                                  ) : (
-                                    item.stock
-                                  )}
-                                </td>
+                                  </td>
+                                ) : null}
                                 <td className="border border-[#141414] p-2 no-print text-center">
                                   <div className="flex items-center justify-center gap-2">
                                     <button 
