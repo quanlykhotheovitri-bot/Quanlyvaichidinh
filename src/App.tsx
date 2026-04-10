@@ -1132,12 +1132,12 @@ export default function App() {
 
       return {
         qrcode,
-        sku: normalizedRow['sku'] || row['SKU'] || row['sku'] || parsed?.sku || '',
-        partner: normalizedRow['partner'] || normalizedRow['đối tác'] || row['Đối tác'] || row['partner'] || parsed?.partner || '',
+        sku: normalizedRow['sku'] ?? row['SKU'] ?? row['sku'] ?? parsed?.sku ?? '',
+        partner: normalizedRow['partner'] ?? normalizedRow['đối tác'] ?? row['Đối tác'] ?? row['partner'] ?? parsed?.partner ?? '',
         date: finalDate,
-        location: normalizedRow['location'] || normalizedRow['vị trí'] || normalizedRow['vi tri'] || row['Vị trí'] || row['location'] || '',
-        note: normalizedRow['note'] || normalizedRow['ghi chú'] || normalizedRow['cuộn'] || normalizedRow['cuon'] || row['Cuộn'] || row['Ghi chú'] || row['note'] || '',
-        quantity: parseInt(String(normalizedRow['quantity'] || normalizedRow['số lượng'] || normalizedRow['so luong'] || row['Số lượng'] || row['quantity'] || '1')) || 1
+        location: normalizedRow['location'] ?? normalizedRow['vị trí'] ?? normalizedRow['vi tri'] ?? row['Vị trí'] ?? row['location'] ?? '',
+        note: normalizedRow['note'] ?? normalizedRow['ghi chú'] ?? normalizedRow['cuộn'] ?? normalizedRow['cuon'] ?? row['Cuộn'] ?? row['Ghi chú'] ?? row['note'] ?? '',
+        quantity: parseInt(String(normalizedRow['quantity'] ?? normalizedRow['số lượng'] ?? normalizedRow['so luong'] ?? row['Số lượng'] ?? row['quantity'] ?? '1')) || 1
       };
     }).filter(entry => entry.qrcode);
 
@@ -1169,10 +1169,10 @@ export default function App() {
           if (currentScanType === 'INPUT') {
             if (inventoryGrouped.has(key)) {
               const existing = inventoryGrouped.get(key)!;
-              existing.sku = entry.sku || existing.sku;
-              existing.partner = entry.partner || existing.partner;
-              existing.date = entry.date || existing.date;
-              existing.note = entry.note || existing.note;
+              existing.sku = entry.sku !== undefined ? entry.sku : existing.sku;
+              existing.partner = entry.partner !== undefined ? entry.partner : existing.partner;
+              existing.date = entry.date !== undefined ? entry.date : existing.date;
+              existing.note = entry.note !== undefined ? entry.note : existing.note;
               existing.quantity = (existing.quantity || 0) + (entry.quantity || 0);
             } else {
               inventoryGrouped.set(key, { 
@@ -1282,10 +1282,8 @@ export default function App() {
       setTransactions(prev => prev.filter(t => !uniqueProductIds.includes(t.productId)));
       
       try {
-        await Promise.all(uniqueProductIds.map(async (id) => {
-          await api.transactions.deleteByProductId(id);
-          await api.products.delete(id);
-        }));
+        await api.transactions.deleteByProductIds(uniqueProductIds);
+        await api.products.deleteMany(uniqueProductIds);
         showNotification(`Đã xóa ${uniqueProductIds.length} mặt hàng thành công.`);
       } catch (error: any) {
         console.error('Error in bulk delete:', error);
@@ -1295,7 +1293,7 @@ export default function App() {
     } else if (currentTab === 'inbound' || currentTab === 'outbound') {
       setTransactions(prev => prev.filter(t => !idsToDelete.includes(t.id)));
       try {
-        await Promise.all(idsToDelete.map(id => api.transactions.delete(id)));
+        await api.transactions.deleteMany(idsToDelete);
         showNotification('Đã xóa các giao dịch thành công.');
       } catch (error) {
         showNotification('Lỗi khi xóa giao dịch.', 'error');
@@ -1304,7 +1302,7 @@ export default function App() {
     } else if (currentTab === 'customers') {
       setCustomers(prev => prev.filter(c => !idsToDelete.includes(c.id)));
       try {
-        await Promise.all(idsToDelete.map(id => api.customers.delete(id)));
+        await api.customers.deleteMany(idsToDelete);
         showNotification('Đã xóa các khách hàng thành công.');
       } catch (error) {
         showNotification('Lỗi khi xóa khách hàng.', 'error');
@@ -1314,7 +1312,7 @@ export default function App() {
       if (subTab === 'input' || subTab === 'output') {
         setLocationEntries(prev => prev.filter(e => !idsToDelete.includes(e.id)));
         try {
-          await Promise.all(idsToDelete.map(id => api.locationEntries.delete(id)));
+          await api.locationEntries.deleteMany(idsToDelete);
           showNotification('Đã xóa các mục vị trí thành công.');
         } catch (error) {
           showNotification('Lỗi khi xóa vị trí.', 'error');
@@ -1330,7 +1328,7 @@ export default function App() {
         setLocationEntries(prev => prev.filter(e => !uniqueQrcodes.includes(e.qrcode)));
         setLocationInventoryEntries(prev => prev.filter(e => !uniqueQrcodes.includes(e.qrcode)));
         try {
-          await Promise.all(uniqueQrcodes.map(qrcode => api.locationEntries.deleteByQRCode(qrcode)));
+          await api.locationEntries.deleteByQRCodes(uniqueQrcodes);
           showNotification('Đã xóa các mục tồn vị trí thành công.');
         } catch (error) {
           showNotification('Lỗi khi xóa tồn vị trí.', 'error');
@@ -1341,7 +1339,7 @@ export default function App() {
       if (deliveryNoteSubTab === 'preview') {
         setDeliveryNotes(prev => prev.filter(item => !idsToDelete.includes(item.id)));
         try {
-          await Promise.all(idsToDelete.map(id => api.deliveryNotes.delete(id)));
+          await api.deliveryNotes.deleteMany(idsToDelete);
           showNotification('Đã xóa các mục phiếu giao nhận thành công.');
         } catch (error) {
           console.error('Error in bulk delete delivery notes:', error);
@@ -1351,7 +1349,7 @@ export default function App() {
       } else {
         setSavedDeliveryNotes(prev => prev.filter(n => !idsToDelete.includes(n.id)));
         try {
-          await Promise.all(idsToDelete.map(id => api.savedDeliveryNotes.delete(id)));
+          await api.savedDeliveryNotes.deleteMany(idsToDelete);
           showNotification('Đã xóa các phiếu lưu thành công.');
         } catch (error) {
           console.error('Error in bulk delete saved delivery notes:', error);
@@ -1758,52 +1756,37 @@ export default function App() {
           });
 
           let sku = String(
-            normalizedRow['sku'] || 
-            normalizedRow['mãhàng'] || 
-            normalizedRow['mãhànghóa'] ||
-            normalizedRow['mãhh'] ||
-            normalizedRow['mãsp'] || 
-            normalizedRow['mãsảnphẩm'] || 
-            normalizedRow['mãvậttư'] ||
-            normalizedRow['itemno'] ||
-            normalizedRow['itemcode'] ||
-            normalizedRow['mã'] ||
-            normalizedRow['item'] ||
-            row.sku || row.SKU || row['Mã Hàng'] || ''
+            normalizedRow['sku'] ?? 
+            normalizedRow['mãhàng'] ?? 
+            normalizedRow['mãhànghóa'] ??
+            normalizedRow['mãhh'] ??
+            normalizedRow['mãsp'] ?? 
+            normalizedRow['mãsảnphẩm'] ?? 
+            normalizedRow['mãvậttư'] ??
+            normalizedRow['itemno'] ??
+            normalizedRow['itemcode'] ??
+            normalizedRow['mã'] ??
+            normalizedRow['item'] ??
+            row.sku ?? row.SKU ?? row['Mã Hàng'] ?? ''
           ).trim();
 
-          if (!sku) {
-            if (currentProductSku) {
-              sku = currentProductSku;
-            } else {
-              return;
-            }
-          } else {
-            currentProductSku = sku;
-          }
+          if (!sku) return;
 
           let name = String(
-            normalizedRow['name'] || 
-            normalizedRow['tênhàng'] || 
-            normalizedRow['tênhànghóa'] ||
-            normalizedRow['tênhh'] ||
-            normalizedRow['tênsp'] || 
-            normalizedRow['tênsảnphẩm'] || 
-            normalizedRow['tênvậttư'] ||
-            normalizedRow['productname'] || 
-            normalizedRow['itemname'] ||
-            normalizedRow['description'] ||
-            normalizedRow['môtả'] ||
-            normalizedRow['tên'] ||
-            row.name || row.Name || row['Tên hàng'] || ''
+            normalizedRow['name'] ?? 
+            normalizedRow['tênhàng'] ?? 
+            normalizedRow['tênhànghóa'] ??
+            normalizedRow['tênhh'] ??
+            normalizedRow['tênsp'] ?? 
+            normalizedRow['tênsảnphẩm'] ?? 
+            normalizedRow['tênvậttư'] ??
+            normalizedRow['productname'] ?? 
+            normalizedRow['itemname'] ??
+            normalizedRow['description'] ??
+            normalizedRow['môtả'] ??
+            normalizedRow['tên'] ??
+            row.name ?? row.Name ?? row['Tên hàng'] ?? ''
           ).trim();
-
-          if (!name && currentProductName) {
-            name = currentProductName;
-          } else if (name) {
-            currentProductName = name;
-          }
-          if (!name) name = 'Sản phẩm mới';
 
           const rowLot = normalizedRow['lotno'] !== undefined ? String(normalizedRow['lotno']).trim() : 
                         (normalizedRow['lotno.'] !== undefined ? String(normalizedRow['lotno.']).trim() : undefined);
@@ -1818,10 +1801,16 @@ export default function App() {
           const productData: Product = {
             id: existingIndex !== undefined ? updatedProducts[existingIndex].id : generateId(),
             sku: sku,
-            name: name === '' ? 'Sản phẩm mới' : name,
-            category: normalizedRow['category'] || normalizedRow['loại'] || row.category || row.Category || 'Chưa phân loại',
-            unit: normalizedRow['unit'] || normalizedRow['đơnvị'] || row.unit || row.Unit || 'Cái',
-            minStock: Number(normalizedRow['minstock'] || normalizedRow['tồntốithiểu'] || row.minStock || row.MinStock || 0),
+            name: name || (existingIndex !== undefined ? updatedProducts[existingIndex].name : 'Sản phẩm mới'),
+            category: normalizedRow['category'] !== undefined ? String(normalizedRow['category']).trim() : 
+                      (normalizedRow['loại'] !== undefined ? String(normalizedRow['loại']).trim() : 
+                      (existingIndex !== undefined ? updatedProducts[existingIndex].category : 'Chưa phân loại')),
+            unit: normalizedRow['unit'] !== undefined ? String(normalizedRow['unit']).trim() : 
+                  (normalizedRow['đơnvị'] !== undefined ? String(normalizedRow['đơnvị']).trim() : 
+                  (existingIndex !== undefined ? updatedProducts[existingIndex].unit : 'Cái')),
+            minStock: normalizedRow['minstock'] !== undefined ? Number(normalizedRow['minstock']) : 
+                      (normalizedRow['tồntốithiểu'] !== undefined ? Number(normalizedRow['tồntốithiểu']) : 
+                      (existingIndex !== undefined ? updatedProducts[existingIndex].minStock : 0)),
             lotNo: rowLot ?? (existingIndex !== undefined ? updatedProducts[existingIndex].lotNo : ''),
             ghiChu: rowGhiChu ?? (existingIndex !== undefined ? updatedProducts[existingIndex].ghiChu : ''),
             designationCode: rowDesignation ?? (existingIndex !== undefined ? updatedProducts[existingIndex].designationCode : ''),
@@ -1855,51 +1844,37 @@ export default function App() {
           });
 
           let sku = String(
-            normalizedRow['sku'] || 
-            normalizedRow['mãhàng'] || 
-            normalizedRow['mãhànghóa'] ||
-            normalizedRow['mãhh'] ||
-            normalizedRow['mãsp'] || 
-            normalizedRow['mãsảnphẩm'] || 
-            normalizedRow['mãvậttư'] ||
-            normalizedRow['itemno'] ||
-            normalizedRow['itemcode'] ||
-            normalizedRow['mã'] ||
-            normalizedRow['item'] ||
-            row.sku || row.SKU || row['Mã Hàng'] || ''
+            normalizedRow['sku'] ?? 
+            normalizedRow['mãhàng'] ?? 
+            normalizedRow['mãhànghóa'] ??
+            normalizedRow['mãhh'] ??
+            normalizedRow['mãsp'] ?? 
+            normalizedRow['mãsảnphẩm'] ?? 
+            normalizedRow['mãvậttư'] ??
+            normalizedRow['itemno'] ??
+            normalizedRow['itemcode'] ??
+            normalizedRow['mã'] ??
+            normalizedRow['item'] ??
+            row.sku ?? row.SKU ?? row['Mã Hàng'] ?? ''
           ).trim();
 
-          if (!sku) {
-            if (currentProductSku) {
-              sku = currentProductSku;
-            } else {
-              return;
-            }
-          } else {
-            currentProductSku = sku;
-          }
+          if (!sku) return;
 
           let name = String(
-            normalizedRow['name'] || 
-            normalizedRow['tênhàng'] || 
-            normalizedRow['tênhànghóa'] ||
-            normalizedRow['tênhh'] ||
-            normalizedRow['tênsp'] || 
-            normalizedRow['tênsảnphẩm'] || 
-            normalizedRow['tênvậttư'] ||
-            normalizedRow['productname'] || 
-            normalizedRow['itemname'] ||
-            normalizedRow['description'] ||
-            normalizedRow['môtả'] ||
-            normalizedRow['tên'] ||
-            row.name || row.Name || row['Tên hàng'] || ''
+            normalizedRow['name'] ?? 
+            normalizedRow['tênhàng'] ?? 
+            normalizedRow['tênhànghóa'] ??
+            normalizedRow['tênhh'] ??
+            normalizedRow['tênsp'] ?? 
+            normalizedRow['tênsảnphẩm'] ?? 
+            normalizedRow['tênvậttư'] ??
+            normalizedRow['productname'] ?? 
+            normalizedRow['itemname'] ??
+            normalizedRow['description'] ??
+            normalizedRow['môtả'] ??
+            normalizedRow['tên'] ??
+            row.name ?? row.Name ?? row['Tên hàng'] ?? ''
           ).trim();
-
-          if (!name && currentProductName) {
-            name = currentProductName;
-          } else if (name) {
-            currentProductName = name;
-          }
 
           const designationCode = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).trim() : 
                                 (normalizedRow['mãchỉđịnh'] !== undefined ? String(normalizedRow['mãchỉđịnh']).trim() : undefined);
@@ -1917,7 +1892,7 @@ export default function App() {
           const alreadyInNewIndex = skuToNewProductIndex.get(sku);
           
           if (existingIndex !== undefined) {
-            if (name && updatedProducts[existingIndex].name !== name && name !== 'Sản phẩm mới') {
+            if (name !== undefined && updatedProducts[existingIndex].name !== name && name !== '') {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], name };
             }
             if (designationCode !== undefined && updatedProducts[existingIndex].designationCode !== designationCode) {
@@ -1930,16 +1905,16 @@ export default function App() {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], ghiChu };
             }
           } else if (alreadyInNewIndex !== undefined) {
-            if (name && newProductsToAdd[alreadyInNewIndex].name === 'Sản phẩm mới' && name !== 'Sản phẩm mới') {
+            if (name !== undefined && newProductsToAdd[alreadyInNewIndex].name === 'Sản phẩm mới' && name !== '') {
               newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], name };
             }
-            if (designationCode !== undefined && newProductsToAdd[alreadyInNewIndex].designationCode === '') {
+            if (designationCode !== undefined && newProductsToAdd[alreadyInNewIndex].designationCode !== designationCode) {
               newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], designationCode };
             }
-            if (loaiChiDinh !== undefined && (!newProductsToAdd[alreadyInNewIndex].loaiChiDinh || newProductsToAdd[alreadyInNewIndex].loaiChiDinh === '')) {
+            if (loaiChiDinh !== undefined && newProductsToAdd[alreadyInNewIndex].loaiChiDinh !== loaiChiDinh) {
               newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], loaiChiDinh };
             }
-            if (ghiChu !== undefined && newProductsToAdd[alreadyInNewIndex].ghiChu === '') {
+            if (ghiChu !== undefined && newProductsToAdd[alreadyInNewIndex].ghiChu !== ghiChu) {
               newProductsToAdd[alreadyInNewIndex] = { ...newProductsToAdd[alreadyInNewIndex], ghiChu };
             }
           } else {
@@ -2288,7 +2263,7 @@ export default function App() {
         } else {
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
           
           if (activeTab === 'deliveryNote') {
             processDeliveryNoteData(jsonData);
@@ -2481,23 +2456,23 @@ export default function App() {
         });
 
         const code = String(
-          normalizedRow['code'] || 
-          normalizedRow['mã'] || 
-          normalizedRow['mã khách hàng'] || 
-          normalizedRow['mã kh'] || 
-          normalizedRow['customer code'] || 
-          normalizedRow['cust code'] ||
-          row['Code'] || row['code'] || row['Mã'] || ''
+          normalizedRow['code'] ?? 
+          normalizedRow['mã'] ?? 
+          normalizedRow['mã khách hàng'] ?? 
+          normalizedRow['mã kh'] ?? 
+          normalizedRow['customer code'] ?? 
+          normalizedRow['cust code'] ??
+          row['Code'] ?? row['code'] ?? row['Mã'] ?? ''
         ).trim();
         
         const name = String(
-          normalizedRow['name'] || 
-          normalizedRow['tên'] || 
-          normalizedRow['tên khách hàng'] || 
-          normalizedRow['tên kh'] || 
-          normalizedRow['customer name'] || 
-          normalizedRow['cust name'] ||
-          row['Name'] || row['name'] || row['Tên'] || ''
+          normalizedRow['name'] ?? 
+          normalizedRow['tên'] ?? 
+          normalizedRow['tên khách hàng'] ?? 
+          normalizedRow['tên kh'] ?? 
+          normalizedRow['customer name'] ?? 
+          normalizedRow['cust name'] ??
+          row['Name'] ?? row['name'] ?? row['Tên'] ?? ''
         ).trim();
         
         if (code && name) {
