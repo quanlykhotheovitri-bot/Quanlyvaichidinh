@@ -455,32 +455,24 @@ export default function App() {
   };
 
   const recalculateActualQty = (notes: DeliveryNoteItem[]) => {
-    const skuGroups = new Map<string, DeliveryNoteItem[]>();
+    const groups = new Map<string, DeliveryNoteItem[]>();
     notes.forEach(item => {
-      if (!skuGroups.has(item.item)) skuGroups.set(item.item, []);
-      skuGroups.get(item.item)!.push(item);
+      const groupKey = `${item.item}|${item.loaiChiDinh || 'NORMAL'}`;
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
+      groups.get(groupKey)!.push(item);
     });
 
-    skuGroups.forEach(items => {
-      // 1. Calculate target sum for the SKU (sum of Math.ceil of designation subgroups)
-      const designationTotals = new Map<string, number>();
-      items.forEach(item => {
-        const key = item.loaiChiDinh || 'NORMAL';
-        designationTotals.set(key, (designationTotals.get(key) || 0) + item.qtyErp);
-      });
+    groups.forEach(items => {
+      const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
+      const targetTotal = Math.ceil(totalQtyErp);
       
-      let skuTarget = 0;
-      designationTotals.forEach(total => {
-        skuTarget += Math.ceil(total);
-      });
-
-      // 2. Initial rounding for each row
+      // Initial rounding for each row
       items.forEach(item => {
         item.actualQty = Math.round(item.qtyErp);
       });
 
       const currentSum = items.reduce((sum, i) => sum + (i.actualQty || 0), 0);
-      const diff = skuTarget - currentSum;
+      const diff = targetTotal - currentSum;
 
       if (diff !== 0) {
         // Find priority index: Row with designation match in inventory
@@ -2572,33 +2564,25 @@ export default function App() {
       return (a.loaiChiDinh || '').localeCompare(b.loaiChiDinh || '');
     });
 
-    // Apply rounding logic by ITEM
-    const skuGroups = new Map<string, DeliveryNoteItem[]>();
+    // Apply rounding logic by ITEM and loaiChiDinh
+    const groups = new Map<string, DeliveryNoteItem[]>();
     finalData.forEach(item => {
-      if (!skuGroups.has(item.item)) skuGroups.set(item.item, []);
-      skuGroups.get(item.item)!.push(item);
+      const groupKey = `${item.item}|${item.loaiChiDinh || 'NORMAL'}`;
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
+      groups.get(groupKey)!.push(item);
     });
 
-    skuGroups.forEach(items => {
-      // 1. Calculate target sum for the SKU (sum of Math.ceil of designation subgroups)
-      const designationTotals = new Map<string, number>();
-      items.forEach(item => {
-        const key = item.loaiChiDinh || 'NORMAL';
-        designationTotals.set(key, (designationTotals.get(key) || 0) + item.qtyErp);
-      });
+    groups.forEach(items => {
+      const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
+      const targetTotal = Math.ceil(totalQtyErp);
       
-      let skuTarget = 0;
-      designationTotals.forEach(total => {
-        skuTarget += Math.ceil(total);
-      });
-
-      // 2. Initial rounding for each row
+      // Initial rounding for each row
       items.forEach(item => {
         item.actualQty = Math.round(item.qtyErp);
       });
 
       const currentSum = items.reduce((sum, i) => sum + (i.actualQty || 0), 0);
-      const diff = skuTarget - currentSum;
+      const diff = targetTotal - currentSum;
 
       if (diff !== 0) {
         // Find priority index: Row with designation match in inventory
