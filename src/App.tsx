@@ -463,21 +463,51 @@ export default function App() {
 
     groups.forEach(items => {
       const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
-      const targetTotal = Math.ceil(totalQtyErp);
-      const diff = targetTotal - totalQtyErp;
+      const targetTotal = Math.round(totalQtyErp);
       
-      let maxIdx = 0;
-      let maxVal = -1;
-      items.forEach((item, idx) => {
-        if (item.qtyErp > maxVal) {
-          maxVal = item.qtyErp;
-          maxIdx = idx;
-        }
+      // Initial rounding for each row
+      items.forEach(item => {
+        item.actualQty = Math.round(item.qtyErp);
       });
 
-      items.forEach((item, idx) => {
-        item.actualQty = (idx === maxIdx) ? Number((item.qtyErp + diff).toFixed(4)) : item.qtyErp;
-      });
+      const currentSum = items.reduce((sum, i) => sum + (i.actualQty || 0), 0);
+      const diff = targetTotal - currentSum;
+
+      if (diff !== 0) {
+        // Find priority index: Row with designation match in inventory
+        let priorityIdx = -1;
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          const hasMatch = inventory.some(inv => 
+            inv.sku.toLowerCase().trim() === item.item.toLowerCase().trim() && 
+            (
+              (item.ovnProductionOrder && (inv.designationCode || '').toLowerCase().includes(item.ovnProductionOrder.toLowerCase().trim())) ||
+              (item.ovnSaleOrder && (inv.designationCode || '').toLowerCase().includes(item.ovnSaleOrder.toLowerCase().trim())) ||
+              (item.noCode && (inv.designationCode || '').toLowerCase().includes(item.noCode.toLowerCase().trim()))
+            )
+          );
+          if (hasMatch) {
+            priorityIdx = i;
+            break;
+          }
+        }
+
+        // Fallback to row with largest fractional part if no match found
+        if (priorityIdx === -1) {
+          let maxFraction = -1;
+          items.forEach((item, idx) => {
+            const fraction = item.qtyErp - Math.floor(item.qtyErp);
+            if (fraction > maxFraction) {
+              maxFraction = fraction;
+              priorityIdx = idx;
+            }
+          });
+        }
+
+        if (priorityIdx !== -1) {
+          items[priorityIdx].actualQty = (items[priorityIdx].actualQty || 0) + diff;
+        }
+      }
     });
     return [...notes];
   };
@@ -2540,21 +2570,51 @@ export default function App() {
 
     groups.forEach(items => {
       const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
-      const targetTotal = Math.ceil(totalQtyErp);
-      const diff = targetTotal - totalQtyErp;
+      const targetTotal = Math.round(totalQtyErp);
       
-      let maxIdx = 0;
-      let maxVal = -1;
-      items.forEach((item, idx) => {
-        if (item.qtyErp > maxVal) {
-          maxVal = item.qtyErp;
-          maxIdx = idx;
-        }
+      // Initial rounding for each row
+      items.forEach(item => {
+        item.actualQty = Math.round(item.qtyErp);
       });
 
-      items.forEach((item, idx) => {
-        item.actualQty = (idx === maxIdx) ? Number((item.qtyErp + diff).toFixed(4)) : item.qtyErp;
-      });
+      const currentSum = items.reduce((sum, i) => sum + (i.actualQty || 0), 0);
+      const diff = targetTotal - currentSum;
+
+      if (diff !== 0) {
+        // Find priority index: Row with designation match in inventory
+        let priorityIdx = -1;
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          const hasMatch = inventory.some(inv => 
+            inv.sku.toLowerCase().trim() === item.item.toLowerCase().trim() && 
+            (
+              (item.ovnProductionOrder && (inv.designationCode || '').toLowerCase().includes(item.ovnProductionOrder.toLowerCase().trim())) ||
+              (item.ovnSaleOrder && (inv.designationCode || '').toLowerCase().includes(item.ovnSaleOrder.toLowerCase().trim())) ||
+              (item.noCode && (inv.designationCode || '').toLowerCase().includes(item.noCode.toLowerCase().trim()))
+            )
+          );
+          if (hasMatch) {
+            priorityIdx = i;
+            break;
+          }
+        }
+
+        // Fallback to row with largest fractional part if no match found
+        if (priorityIdx === -1) {
+          let maxFraction = -1;
+          items.forEach((item, idx) => {
+            const fraction = item.qtyErp - Math.floor(item.qtyErp);
+            if (fraction > maxFraction) {
+              maxFraction = fraction;
+              priorityIdx = idx;
+            }
+          });
+        }
+
+        if (priorityIdx !== -1) {
+          items[priorityIdx].actualQty = (items[priorityIdx].actualQty || 0) + diff;
+        }
+      }
     });
 
     setDeliveryNotes(finalData);
