@@ -1,1 +1,58 @@
 @import "tailwindcss";
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  body, html {
+    background: white !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  .print-content {
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    display: block !important;
+  }
+
+  .print-table-container {
+    max-height: none !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  table {
+    width: 100% !important;
+    min-width: 0 !important; /* Allow table to shrink to page width */
+    table-layout: auto !important;
+  }
+
+  th, td {
+    word-break: break-word !important;
+    font-size: 8pt !important;
+  }
+
+  /* Hide the scrollbar in print */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Force background colors to print if needed */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}

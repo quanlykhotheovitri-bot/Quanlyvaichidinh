@@ -511,6 +511,11 @@ export default function App() {
       let updatedNotes = deliveryNotes.map(item => {
         if (item.id === editingDeliveryNoteId) {
           const newItem = { ...item, ...tempDeliveryNoteItem } as DeliveryNoteItem;
+          // Nếu thay đổi LotNo hoặc Item, xóa assignedLots để tránh sai lệch khi post
+          if (tempDeliveryNoteItem.lotNo !== undefined && tempDeliveryNoteItem.lotNo !== item.lotNo) {
+            newItem.assignedLots = [];
+            newItem.actualIssuedQty = newItem.actualQty;
+          }
           return { ...newItem, location: getLocationByItemAndLot(newItem.item, newItem.lotNo) };
         }
         return item;
@@ -539,7 +544,13 @@ export default function App() {
       if (field === 'item' || field === 'lotNo') {
         updated = updated.map(item => {
           if (item.id === itemAtId) {
-            return { ...item, location: getLocationByItemAndLot(item.item, item.lotNo) };
+            // Xóa assignedLots khi sửa tay LotNo hoặc Item để tránh sai lệch khi post
+            return { 
+              ...item, 
+              assignedLots: [],
+              actualIssuedQty: item.actualQty,
+              location: getLocationByItemAndLot(item.item, item.lotNo) 
+            };
           }
           return item;
         });
@@ -555,7 +566,12 @@ export default function App() {
     const newTransactions: Transaction[] = [];
 
     deliveryNotes.forEach(item => {
-      if (item.assignedLots && item.assignedLots.length > 0) {
+      // Kiểm tra xem assignedLots có khớp với field lotNo hiện tại không
+      const assignedLotStr = (item.assignedLots || []).map(l => l.lotNo).join(', ');
+      const isSync = assignedLotStr === item.lotNo;
+
+      if (isSync && item.assignedLots && item.assignedLots.length > 0) {
+        // Sử dụng chi tiết Lot đã gán
         item.assignedLots.forEach(lot => {
           const product = products.find(p => p.sku === item.item);
           if (product) {
@@ -573,20 +589,34 @@ export default function App() {
             });
           }
         });
-      } else if (item.actualQty && item.actualQty > 0) {
+      } else if (item.lotNo && (item.actualIssuedQty || item.actualQty) > 0) {
+        // Trường hợp chỉnh sửa tay hoặc fallback: Tách lotNo và tìm tồn kho tương ứng
+        const lotList = item.lotNo.split(',').map(l => l.trim()).filter(Boolean);
         const product = products.find(p => p.sku === item.item);
-        if (product) {
-          newTransactions.push({
-            id: generateId(),
-            productId: product.id,
-            type: 'outbound',
-            quantity: item.actualQty,
-            date: today,
-            partner: item.customerCode || item.noCode || 'Unknown',
-            lotNo: item.lotNo,
-            ghiChu: 'Xuất từ Phiếu giao nhận',
-            designationCode: item.remark,
-            loaiChiDinh: item.stock.includes('(') ? item.stock.split('(')[1].replace(')', '') : ''
+        
+        if (product && lotList.length > 0) {
+          const totalQty = item.actualIssuedQty || item.actualQty || 0;
+          const qtyPerLot = totalQty / lotList.length;
+
+          lotList.forEach(lotName => {
+            // Tìm item trong inventory khớp với SKU và LotNo để lấy loaiChiDinh/designationCode chính xác
+            const invMatch = inventory.find(inv => 
+              inv.sku.toLowerCase().trim() === item.item.toLowerCase().trim() && 
+              inv.lotNo === lotName
+            );
+
+            newTransactions.push({
+              id: generateId(),
+              productId: product.id,
+              type: 'outbound',
+              quantity: qtyPerLot,
+              date: today,
+              partner: item.customerCode || item.noCode || 'Unknown',
+              lotNo: lotName,
+              ghiChu: 'Xuất từ Phiếu giao nhận',
+              designationCode: invMatch?.designationCode || item.remark || '',
+              loaiChiDinh: invMatch?.loaiChiDinh || (item.stock.includes('(') ? item.stock.split('(')[1].replace(')', '') : '')
+            });
           });
         }
       }
@@ -2704,7 +2734,7 @@ export default function App() {
 
       {/* Sidebar */}
       <aside className={cn(
-        "fixed inset-y-0 left-0 z-50 w-64 border-r border-[#141414] bg-[#E4E3E0] flex flex-col transition-transform duration-300 lg:relative lg:translate-x-0",
+        "fixed inset-y-0 left-0 z-50 w-64 border-r border-[#141414] bg-[#E4E3E0] flex flex-col transition-transform duration-300 lg:relative lg:translate-x-0 no-print",
         isSidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="p-6 border-b border-[#141414] flex justify-between items-center">
@@ -2780,7 +2810,7 @@ export default function App() {
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden w-full">
-        <header className="h-20 border-b border-[#141414] flex items-center justify-between px-4 sm:px-8 bg-[#E4E3E0]/80 backdrop-blur-sm z-10 gap-4">
+        <header className="h-20 border-b border-[#141414] flex items-center justify-between px-4 sm:px-8 bg-[#E4E3E0]/80 backdrop-blur-sm z-10 gap-4 no-print">
           <div className="flex items-center gap-4 flex-1">
             <button 
               onClick={() => setIsSidebarOpen(true)}
@@ -3676,7 +3706,7 @@ export default function App() {
                 </div>
 
                 {deliveryNoteSubTab === 'preview' && (
-                  <div className="bg-white border border-[#141414] p-4 sm:p-8 shadow-sm">
+                  <div className="bg-white border border-[#141414] p-4 sm:p-8 shadow-sm print-content">
                   <div className="flex justify-center items-start mb-8">
                     <div className="text-center flex-1">
                       <h1 className="text-lg sm:text-xl font-bold uppercase tracking-widest">Phiếu giao nhận Fabric</h1>
@@ -3723,7 +3753,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="overflow-auto max-h-[65vh]">
+                  <div className="overflow-auto max-h-[65vh] print-table-container">
                     <table className="w-full border-collapse min-w-[1800px]">
                       <thead className="sticky top-0 z-10 shadow-sm">
                         <tr className="bg-[#001F3F] text-white text-[10px] uppercase tracking-wider">
