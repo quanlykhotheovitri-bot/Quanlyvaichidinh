@@ -696,6 +696,23 @@ export const api = {
       }
     }
   },
+  getBackupData() {
+    const backup: Record<string, any> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(CACHE_KEY_PREFIX)) {
+        const data = localStorage.getItem(key);
+        if (data) {
+          try {
+            backup[key] = JSON.parse(data);
+          } catch (e) {
+            backup[key] = data;
+          }
+        }
+      }
+    }
+    return backup;
+  },
   clearCache() {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);

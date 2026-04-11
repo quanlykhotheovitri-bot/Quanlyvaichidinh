@@ -5129,6 +5129,7 @@ function StatCard({ label, value, alert = false, bgColor = "bg-white/50", textCo
 
 function StorageUsageBar() {
   const [usage, setUsage] = useState(0);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const limit = 5 * 1024 * 1024; // 5MB limit for localStorage
 
   const calculateUsage = useCallback(() => {
@@ -5142,9 +5143,10 @@ function StorageUsageBar() {
     setUsage(total);
   }, []);
 
+  const percentage = Math.min(Math.round((usage / limit) * 100), 100);
+
   useEffect(() => {
     calculateUsage();
-    // Update every 5 seconds or when storage events happen
     const interval = setInterval(calculateUsage, 5000);
     window.addEventListener('storage', calculateUsage);
     
@@ -5154,15 +5156,35 @@ function StorageUsageBar() {
     };
   }, [calculateUsage]);
 
+  useEffect(() => {
+    if (percentage >= 90 && !isBackupModalOpen) {
+      setIsBackupModalOpen(true);
+    }
+  }, [percentage, isBackupModalOpen]);
+
   const handleClearCache = () => {
     if (window.confirm('Bạn có chắc chắn muốn xóa bộ nhớ đệm? Dữ liệu sẽ được tải lại từ máy chủ.')) {
       api.clearCache();
       calculateUsage();
-      window.location.reload(); // Reload to ensure data is fresh
+      window.location.reload();
     }
   };
 
-  const percentage = Math.min(Math.round((usage / limit) * 100), 100);
+  const handleBackupAndClear = () => {
+    const backupData = api.getBackupData();
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const timestamp = format(new Date(), 'yyyyMMdd_HHmmss');
+    saveAs(blob, `warehouse_backup_${timestamp}.json`);
+    
+    // Clear after a short delay to ensure download started
+    setTimeout(() => {
+      api.clearCache();
+      calculateUsage();
+      setIsBackupModalOpen(false);
+      window.location.reload();
+    }, 1000);
+  };
+
   const usageInMB = (usage / (1024 * 1024)).toFixed(2);
 
   return (
@@ -5190,6 +5212,48 @@ function StorageUsageBar() {
           Xóa đệm
         </button>
       </div>
+
+      <AnimatePresence>
+        {isBackupModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#E4E3E0] border-2 border-red-600 p-8 w-full max-w-md space-y-6 text-center shadow-2xl"
+            >
+              <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto animate-pulse">
+                <AlertTriangle size={40} />
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-serif italic text-3xl text-red-600">Bộ nhớ gần đầy!</h3>
+                <p className="text-sm font-medium">
+                  Dung lượng lưu trữ đã đạt <span className="text-red-600 font-bold">{percentage}%</span>. 
+                  Để tránh mất dữ liệu và đảm bảo ứng dụng hoạt động ổn định, vui lòng đóng gói và lưu dữ liệu về máy.
+                </p>
+                <p className="text-xs opacity-60 italic">
+                  * Dữ liệu sẽ được tự động xóa sau khi lưu thành công.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 pt-4">
+                <button 
+                  onClick={handleBackupAndClear}
+                  className="w-full py-4 bg-red-600 text-white text-sm font-bold uppercase tracking-widest hover:bg-red-700 transition-colors shadow-lg flex items-center justify-center gap-2"
+                >
+                  <Download size={18} />
+                  Đóng gói & Lưu dữ liệu ngay
+                </button>
+                <button 
+                  onClick={() => setIsBackupModalOpen(false)}
+                  className="w-full py-2 text-[10px] font-bold uppercase tracking-widest opacity-50 hover:opacity-100 transition-opacity"
+                >
+                  Để sau (Không khuyến khích)
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
