@@ -3022,7 +3022,8 @@ export default function App() {
                     </button>
                     <button 
                       onClick={() => {
-                        setNewTransaction(prev => ({ ...prev, type: activeTab as 'inbound' | 'outbound' }));
+                        setEditingId(null);
+                        setNewTransaction({ productId: '', type: activeTab as 'inbound' | 'outbound', quantity: 0, date: format(new Date(), 'dd/MM/yyyy'), partner: '', loaiChiDinh: '', lotNo: '', ghiChu: '', designationCode: '' });
                         setIsTransactionModalOpen(true);
                       }}
                       className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
@@ -3093,6 +3094,7 @@ export default function App() {
                                     onClick={() => {
                                       setEditingId(t.id);
                                       setNewTransaction(t);
+                                      setIsTransactionModalOpen(true);
                                     }}
                                     className="p-1 hover:bg-gray-200 rounded transition-colors"
                                   >
@@ -4744,6 +4746,24 @@ export default function App() {
                     />
                   </div>
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Lot No</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none font-mono"
+                      value={newTransaction.lotNo || ''}
+                      onChange={e => setNewTransaction({...newTransaction, lotNo: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Mã chỉ định</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none font-mono"
+                      value={newTransaction.designationCode || ''}
+                      onChange={e => setNewTransaction({...newTransaction, designationCode: e.target.value})}
+                    />
+                  </div>
+                </div>
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase font-bold opacity-50">Loại chỉ định</label>
                   <input 
@@ -4763,7 +4783,10 @@ export default function App() {
                 <div className="flex gap-4 pt-4">
                   <button 
                     type="button"
-                    onClick={() => setIsTransactionModalOpen(false)}
+                    onClick={() => {
+                      setIsTransactionModalOpen(false);
+                      setEditingId(null);
+                    }}
                     className="flex-1 py-2 border border-[#141414] text-xs font-bold uppercase tracking-wider hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
                   >
                     Hủy
