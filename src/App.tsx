@@ -3448,33 +3448,57 @@ export default function App() {
                           { width: 10 }
                         ];
 
+                        worksheet.columns = [
+                          { width: 5 },  // No
+                          { width: 15 }, // OVN Sale Order
+                          { width: 20 }, // OVN Production Order
+                          { width: 12 }, // item
+                          { width: 40 }, // Material Name
+                          { width: 8 },  // Unit
+                          { width: 10 }, // Qty ERP
+                          { width: 10 }, // Thực tế
+                          { width: 30 }, // Lot No
+                          { width: 15 }, // Số lượng thực phát
+                          { width: 15 }, // remark
+                          { width: 12 }, // Loại chỉ định
+                          { width: 10 }, // Brand
+                          { width: 25 }, // Customer code
+                          { width: 20 }, // Final Destination
+                          { width: 10 }, // No.
+                          { width: 15 }, // Vị trí
+                          { width: 15 }  // STOCK
+                        ];
+
                         const titleRow = worksheet.addRow(['', 'PHIẾU GIAO NHẬN FABRIC']);
-                        titleRow.getCell(2).font = { name: 'Times New Roman', size: 16, bold: true };
-                        titleRow.getCell(2).alignment = { horizontal: 'center' };
-                        worksheet.mergeCells(1, 2, 1, 17);
+                        titleRow.getCell(2).font = { name: 'Times New Roman', size: 18, bold: true };
+                        titleRow.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+                        worksheet.mergeCells(1, 2, 1, 15);
 
                         const subtitleRow = worksheet.addRow(['', 'Delivery Note']);
                         subtitleRow.getCell(2).font = { name: 'Times New Roman', size: 12, italic: true };
-                        subtitleRow.getCell(2).alignment = { horizontal: 'center' };
-                        worksheet.mergeCells(2, 2, 2, 17);
+                        subtitleRow.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+                        worksheet.mergeCells(2, 2, 2, 15);
 
                         worksheet.addRow([]);
 
-                        const meta1 = worksheet.addRow(['Mã Tài Liệu:', deliveryNoteHeader.documentCode]);
-                        meta1.getCell(1).font = { bold: true };
-                        const meta2 = worksheet.addRow(['Dept:', deliveryNoteHeader.dept]);
-                        meta2.getCell(1).font = { bold: true };
-                        const meta3 = worksheet.addRow(['TO:', deliveryNoteHeader.to]);
-                        meta3.getCell(1).font = { bold: true };
-                        const meta4 = worksheet.addRow(['Date:', deliveryNoteHeader.date]);
-                        meta4.getCell(1).font = { bold: true };
+                        const metaRow1 = worksheet.addRow(['Mã Tài Liệu:', deliveryNoteHeader.documentCode, '', '', '', '', '', '', '', 'Dept:', deliveryNoteHeader.dept]);
+                        metaRow1.getCell(1).font = { bold: true };
+                        metaRow1.getCell(10).font = { bold: true };
+                        worksheet.mergeCells(metaRow1.number, 2, metaRow1.number, 8);
+                        worksheet.mergeCells(metaRow1.number, 11, metaRow1.number, 15);
+
+                        const metaRow2 = worksheet.addRow(['TO:', deliveryNoteHeader.to, '', '', '', '', '', '', '', 'Date:', deliveryNoteHeader.date]);
+                        metaRow2.getCell(1).font = { bold: true };
+                        metaRow2.getCell(10).font = { bold: true };
+                        worksheet.mergeCells(metaRow2.number, 2, metaRow2.number, 8);
+                        worksheet.mergeCells(metaRow2.number, 11, metaRow2.number, 15);
 
                         worksheet.addRow([]);
 
                         const headerRow = worksheet.addRow([
-                          'No', 'OVN Sale Order', 'OVN Production Order', 'item', 'Material Name', 
-                          'Unit', 'Qty ERP', 'Thực tế', 'Lot No', 'Số lượng thực phát', 
-                          'remark', 'Loại chỉ định', 'Brand', 'Customer code', 'Final Destination', 'No.', 'Vị trí', 'STOCK'
+                          'NO', 'OVN SALE ORDER', 'OVN PRODUCTION ORDER', 'ITEM', 'MATERIAL NAME', 
+                          'UNIT', 'QTY ERP', 'THỰC TẾ', 'LOT NO', 'SỐ LƯỢNG THỰC PHÁT', 
+                          'REMARK', 'LOẠI CHỈ ĐỊNH', 'BRAND', 'CUSTOMER CODE', 'FINAL DESTINATION', 'No.', 'Vị trí', 'STOCK'
                         ]);
 
                         headerRow.eachCell((cell) => {
@@ -3539,17 +3563,21 @@ export default function App() {
                             };
                             cell.font = { size: 9 };
                             
-                            if ([1, 6, 10].includes(colNumber)) {
-                              cell.alignment = { horizontal: 'center' };
-                            } else if ([7, 8].includes(colNumber)) {
-                              cell.alignment = { horizontal: 'right' };
+                            // Alignment based on column type
+                            if ([1, 4, 6, 9, 12, 13, 16].includes(colNumber)) {
+                              cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+                            } else if ([7, 8, 10].includes(colNumber)) {
+                              cell.alignment = { horizontal: 'right', vertical: 'middle', wrapText: true };
+                              cell.numFmt = '#,##0.000';
+                            } else {
+                              cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
                             }
                           });
                         });
 
                         let currentGroupKey = '';
                         let startMergeRow = 0;
-                        const dataStartRow = 9;
+                        const dataStartRow = 8;
 
                         deliveryNotes.forEach((item, index) => {
                           const rowIdx = dataStartRow + index;
@@ -3557,8 +3585,10 @@ export default function App() {
                           
                           if (groupKey !== currentGroupKey) {
                             if (startMergeRow !== 0 && (rowIdx - 1) > startMergeRow) {
-                              worksheet.mergeCells(startMergeRow, 9, rowIdx - 1, 9); // Lot No
-                              worksheet.mergeCells(startMergeRow, 10, rowIdx - 1, 10); // Số lượng thực phát
+                              // Merge columns that are grouped by Item + loaiChiDinh
+                              [4, 5, 6, 9, 10, 11, 12, 13, 14, 15].forEach(col => {
+                                worksheet.mergeCells(startMergeRow, col, rowIdx - 1, col);
+                              });
                             }
                             currentGroupKey = groupKey;
                             startMergeRow = rowIdx;
@@ -3566,8 +3596,9 @@ export default function App() {
                           
                           if (index === deliveryNotes.length - 1) {
                             if (rowIdx > startMergeRow) {
-                              worksheet.mergeCells(startMergeRow, 9, rowIdx, 9);
-                              worksheet.mergeCells(startMergeRow, 10, rowIdx, 10);
+                              [4, 5, 6, 9, 10, 11, 12, 13, 14, 15].forEach(col => {
+                                worksheet.mergeCells(startMergeRow, col, rowIdx, col);
+                              });
                             }
                           }
                         });
@@ -3581,8 +3612,12 @@ export default function App() {
                           '', '', '', '', '', '', ''
                         ]);
                         worksheet.mergeCells(totalRow.number, 1, totalRow.number, 6);
-                        totalRow.eachCell((cell) => {
+                        totalRow.eachCell((cell, colNumber) => {
                           cell.font = { bold: true, size: 10 };
+                          if ([7, 8, 10].includes(colNumber)) {
+                            cell.numFmt = '#,##0.000';
+                            cell.alignment = { horizontal: 'right' };
+                          }
                           cell.border = {
                             top: { style: 'thin' },
                             left: { style: 'thin' },
