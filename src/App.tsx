@@ -480,49 +480,27 @@ export default function App() {
     groups.forEach(items => {
       const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
       const targetTotal = Math.ceil(totalQtyErp);
-      
-      // Initial rounding for each row
-      items.forEach(item => {
-        item.actualQty = Math.round(item.qtyErp);
+      const diff = targetTotal - totalQtyErp;
+
+      // Find row with largest qtyErp in this group
+      let maxIdx = 0;
+      let maxVal = -1;
+      items.forEach((item, idx) => {
+        if (item.qtyErp > maxVal) {
+          maxVal = item.qtyErp;
+          maxIdx = idx;
+        }
       });
 
-      const currentSum = items.reduce((sum, i) => sum + (i.actualQty || 0), 0);
-      const diff = targetTotal - currentSum;
-
-      if (diff !== 0) {
-        // Find priority index: Row with designation match in inventory
-        let priorityIdx = -1;
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-          const hasMatch = inventory.some(inv => 
-            inv.sku.toLowerCase().trim() === item.item.toLowerCase().trim() && 
-            (
-              (item.ovnProductionOrder && (inv.designationCode || '').toLowerCase().includes(item.ovnProductionOrder.toLowerCase().trim())) ||
-              (item.ovnSaleOrder && (inv.designationCode || '').toLowerCase().includes(item.ovnSaleOrder.toLowerCase().trim())) ||
-              (item.noCode && (inv.designationCode || '').toLowerCase().includes(item.noCode.toLowerCase().trim()))
-            )
-          );
-          if (hasMatch) {
-            priorityIdx = i;
-            break;
-          }
+      items.forEach((item, idx) => {
+        if (idx === maxIdx) {
+          // Add the difference to the largest row
+          item.actualQty = Number((item.qtyErp + diff).toFixed(4));
+        } else {
+          // Keep original qtyErp for other rows
+          item.actualQty = item.qtyErp;
         }
-
-        // Fallback to row with largest qtyErp if no match found
-        if (priorityIdx === -1) {
-          let maxVal = -1;
-          items.forEach((item, idx) => {
-            if (item.qtyErp > maxVal) {
-              maxVal = item.qtyErp;
-              priorityIdx = idx;
-            }
-          });
-        }
-
-        if (priorityIdx !== -1) {
-          items[priorityIdx].actualQty = (items[priorityIdx].actualQty || 0) + diff;
-        }
-      }
+      });
     });
     return [...notes];
   };
@@ -2595,49 +2573,27 @@ export default function App() {
     groups.forEach(items => {
       const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
       const targetTotal = Math.ceil(totalQtyErp);
-      
-      // Initial rounding for each row
-      items.forEach(item => {
-        item.actualQty = Math.round(item.qtyErp);
+      const diff = targetTotal - totalQtyErp;
+
+      // Find row with largest qtyErp in this group
+      let maxIdx = 0;
+      let maxVal = -1;
+      items.forEach((item, idx) => {
+        if (item.qtyErp > maxVal) {
+          maxVal = item.qtyErp;
+          maxIdx = idx;
+        }
       });
 
-      const currentSum = items.reduce((sum, i) => sum + (i.actualQty || 0), 0);
-      const diff = targetTotal - currentSum;
-
-      if (diff !== 0) {
-        // Find priority index: Row with designation match in inventory
-        let priorityIdx = -1;
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-          const hasMatch = inventory.some(inv => 
-            inv.sku.toLowerCase().trim() === item.item.toLowerCase().trim() && 
-            (
-              (item.ovnProductionOrder && (inv.designationCode || '').toLowerCase().includes(item.ovnProductionOrder.toLowerCase().trim())) ||
-              (item.ovnSaleOrder && (inv.designationCode || '').toLowerCase().includes(item.ovnSaleOrder.toLowerCase().trim())) ||
-              (item.noCode && (inv.designationCode || '').toLowerCase().includes(item.noCode.toLowerCase().trim()))
-            )
-          );
-          if (hasMatch) {
-            priorityIdx = i;
-            break;
-          }
+      items.forEach((item, idx) => {
+        if (idx === maxIdx) {
+          // Add the difference to the largest row
+          item.actualQty = Number((item.qtyErp + diff).toFixed(4));
+        } else {
+          // Keep original qtyErp for other rows
+          item.actualQty = item.qtyErp;
         }
-
-        // Fallback to row with largest qtyErp if no match found
-        if (priorityIdx === -1) {
-          let maxVal = -1;
-          items.forEach((item, idx) => {
-            if (item.qtyErp > maxVal) {
-              maxVal = item.qtyErp;
-              priorityIdx = idx;
-            }
-          });
-        }
-
-        if (priorityIdx !== -1) {
-          items[priorityIdx].actualQty = (items[priorityIdx].actualQty || 0) + diff;
-        }
-      }
+      });
     });
 
     setDeliveryNotes(finalData);
