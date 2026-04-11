@@ -1492,7 +1492,15 @@ export default function App() {
   }, [inventory]);
 
   const analyzeGroupStock = useCallback((sku: string, groupItems: DeliveryNoteItem[]) => {
-    const skuInventory = inventory.filter(item => item.sku.toLowerCase().trim() === sku.toLowerCase().trim());
+    // Get all inventory for this SKU and create a working copy of stock
+    const skuInventory = inventory
+      .filter(item => item.sku.toLowerCase().trim() === sku.toLowerCase().trim())
+      .map(item => ({ 
+        ...item, 
+        tempStock: item.currentStock,
+        normalizedCodes: (item.designationCode || '').toLowerCase().replace(/\s+/g, '').split('/')
+      }));
+
     if (skuInventory.length === 0) {
       return { 
         detail: 'Không có tồn', 
@@ -1500,54 +1508,46 @@ export default function App() {
       };
     }
 
-    // Map of designation code -> current stock
-    const remainingByCode = new Map<string, number>();
-    skuInventory.forEach(item => {
-      const code = (item.designationCode || '').toLowerCase().trim();
-      remainingByCode.set(code, (remainingByCode.get(code) || 0) + item.currentStock);
-    });
-
     let totalShortage = 0;
 
     groupItems.forEach(gi => {
-      const needed = gi.actualQty || gi.qtyErp;
+      let needed = gi.actualQty || gi.qtyErp;
       const targetRpro = (gi.ovnProductionOrder || '').toLowerCase().trim();
       const targetSo = (gi.ovnSaleOrder || '').toLowerCase().trim();
       const targetNo = (gi.noCode || '').toLowerCase().trim();
 
-      // Find a matching designation code
-      let matchedCode = '';
-      if (targetRpro && remainingByCode.has(targetRpro)) matchedCode = targetRpro;
-      else if (targetSo && remainingByCode.has(targetSo)) matchedCode = targetSo;
-      else if (targetNo && remainingByCode.has(targetNo)) matchedCode = targetNo;
+      // Helper to check if an inventory item matches any of the targets
+      const isMatch = (invItem: any) => {
+        return (targetRpro && invItem.normalizedCodes.includes(targetRpro)) || 
+               (targetSo && invItem.normalizedCodes.includes(targetSo)) || 
+               (targetNo && invItem.normalizedCodes.includes(targetNo));
+      };
 
-      if (matchedCode) {
-        const available = remainingByCode.get(matchedCode) || 0;
-        if (available >= needed) {
-          remainingByCode.set(matchedCode, available - needed);
-        } else {
-          const shortage = needed - available;
-          remainingByCode.set(matchedCode, 0);
-          
-          // Try to use general stock for the rest
-          const generalAvailable = remainingByCode.get('') || 0;
-          if (generalAvailable >= shortage) {
-            remainingByCode.set('', generalAvailable - shortage);
-          } else {
-            remainingByCode.set('', 0);
-            totalShortage += (shortage - generalAvailable);
+      // Priority 1: Specific Designation Match
+      skuInventory.forEach(invItem => {
+        if (needed <= 0) return;
+        if (invItem.tempStock <= 0) return;
+        if (isMatch(invItem)) {
+          const take = Math.min(invItem.tempStock, needed);
+          invItem.tempStock -= take;
+          needed -= take;
+        }
+      });
+
+      // Priority 2: General Stock (Empty Designation)
+      if (needed > 0) {
+        skuInventory.forEach(invItem => {
+          if (needed <= 0) return;
+          if (invItem.tempStock <= 0) return;
+          if (!(invItem.designationCode || '').trim()) {
+            const take = Math.min(invItem.tempStock, needed);
+            invItem.tempStock -= take;
+            needed -= take;
           }
-        }
-      } else {
-        // No specific match, try general stock
-        const generalAvailable = remainingByCode.get('') || 0;
-        if (generalAvailable >= needed) {
-          remainingByCode.set('', generalAvailable - needed);
-        } else {
-          remainingByCode.set('', 0);
-          totalShortage += (needed - generalAvailable);
-        }
+        });
       }
+
+      totalShortage += needed;
     });
 
     const detail = getStockDetailByDesignation(sku);
