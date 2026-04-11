@@ -457,8 +457,9 @@ export default function App() {
   const recalculateActualQty = (notes: DeliveryNoteItem[]) => {
     const groups = new Map<string, DeliveryNoteItem[]>();
     notes.forEach(item => {
-      if (!groups.has(item.item)) groups.set(item.item, []);
-      groups.get(item.item)!.push(item);
+      const groupKey = `${item.item}|${item.loaiChiDinh || 'NORMAL'}`;
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
+      groups.get(groupKey)!.push(item);
     });
 
     groups.forEach(items => {
@@ -2559,13 +2560,17 @@ export default function App() {
     const finalData = mappedData.map((item, index) => ({
       ...item,
       no: index + 1
-    }));
+    })).sort((a, b) => {
+      if (a.item !== b.item) return a.item.localeCompare(b.item);
+      return (a.loaiChiDinh || '').localeCompare(b.loaiChiDinh || '');
+    });
 
-    // Apply rounding logic by ITEM
+    // Apply rounding logic by ITEM and loaiChiDinh
     const groups = new Map<string, DeliveryNoteItem[]>();
     finalData.forEach(item => {
-      if (!groups.has(item.item)) groups.set(item.item, []);
-      groups.get(item.item)!.push(item);
+      const groupKey = `${item.item}|${item.loaiChiDinh || 'NORMAL'}`;
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
+      groups.get(groupKey)!.push(item);
     });
 
     groups.forEach(items => {
@@ -3764,12 +3769,14 @@ export default function App() {
 
                             const hasMismatch = !isDesignationMatch(item.remark, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode);
 
-                            // RowSpan logic
-                            const isFirstInItemGroup = index === 0 || filteredDeliveryNotes[index - 1].item !== item.item;
+                            // RowSpan logic: Group by ITEM and loaiChiDinh
+                            const isFirstInItemGroup = index === 0 || 
+                              filteredDeliveryNotes[index - 1].item !== item.item || 
+                              filteredDeliveryNotes[index - 1].loaiChiDinh !== item.loaiChiDinh;
                             let itemGroupSize = 0;
                             if (isFirstInItemGroup) {
                               for (let i = index; i < filteredDeliveryNotes.length; i++) {
-                                if (filteredDeliveryNotes[i].item === item.item) {
+                                if (filteredDeliveryNotes[i].item === item.item && filteredDeliveryNotes[i].loaiChiDinh === item.loaiChiDinh) {
                                   itemGroupSize++;
                                 } else {
                                   break;
