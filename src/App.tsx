@@ -454,10 +454,25 @@ export default function App() {
     }
   };
 
+  const determineLoaiChiDinh = (itemCode: string, prodOrder: string, saleOrder: string, noCode: string, currentLoai: string) => {
+    if (currentLoai && currentLoai !== 'NORMAL') return currentLoai;
+    
+    const match = inventory.find(inv => 
+      inv.sku.toLowerCase().trim() === itemCode.toLowerCase().trim() && 
+      (
+        (prodOrder && (inv.designationCode || '').toLowerCase().includes(prodOrder.toLowerCase().trim())) ||
+        (saleOrder && (inv.designationCode || '').toLowerCase().includes(saleOrder.toLowerCase().trim())) ||
+        (noCode && (inv.designationCode || '').toLowerCase().includes(noCode.toLowerCase().trim()))
+      )
+    );
+    return match?.loaiChiDinh || 'NORMAL';
+  };
+
   const recalculateActualQty = (notes: DeliveryNoteItem[]) => {
     const groups = new Map<string, DeliveryNoteItem[]>();
     notes.forEach(item => {
-      const groupKey = `${item.item}|${item.loaiChiDinh || 'NORMAL'}`;
+      const loai = determineLoaiChiDinh(item.item, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode, item.loaiChiDinh);
+      const groupKey = `${item.item}|${loai}`;
       if (!groups.has(groupKey)) groups.set(groupKey, []);
       groups.get(groupKey)!.push(item);
     });
@@ -1728,7 +1743,10 @@ export default function App() {
         };
       }
 
-      let remainingNeeded = item.actualQty || item.qtyErp;
+      let remainingNeeded = (item.actualQty !== undefined && item.actualQty !== null && item.actualQty !== 0) ? item.actualQty : (item.actualQty === 0 ? 0 : item.qtyErp);
+      // Simplified: if actualQty is set (even if 0), use it. Otherwise use qtyErp.
+      const targetQty = (item.actualQty !== undefined && item.actualQty !== null) ? item.actualQty : item.qtyErp;
+      remainingNeeded = targetQty;
       const assignedLots = [];
 
       for (const match of matches) {
@@ -2472,11 +2490,31 @@ export default function App() {
         row['No.'] || row['NO.'] || row['No'] || row['NO'] || ''
       ).trim();
 
-      const loaiChiDinh = String(
+      const customerCode = String(
+        normalizedRow['customercode'] || 
+        normalizedRow['mãkháchhàng'] || 
+        normalizedRow['selltocustomername'] ||
+        row['Customer code'] || row['Sell-to Customer Name'] || ''
+      ).trim();
+
+      let finalNoCode = noValue;
+      if (!finalNoCode && customerCode) {
+        const foundCustomer = customers.find(c => 
+          c.name.toLowerCase() === customerCode.toLowerCase() || 
+          c.code.toLowerCase() === customerCode.toLowerCase()
+        );
+        if (foundCustomer) {
+          finalNoCode = foundCustomer.code;
+        }
+      }
+
+      const loaiChiDinhFromRow = String(
         normalizedRow['loaichidinh'] || 
         normalizedRow['loạichỉđịnh'] || 
         row['Loại chỉ định'] || ''
       ).trim().toUpperCase();
+
+      const finalLoaiChiDinh = determineLoaiChiDinh(itemNo, ovnProductionOrder, ovnSaleOrder, finalNoCode, loaiChiDinhFromRow);
 
       const materialName = String(
         normalizedRow['materialname'] || 
@@ -2496,24 +2534,6 @@ export default function App() {
         normalizedRow['brandcode'] ||
         row['Brand'] || row['Brand Code'] || ''
       ).trim();
-
-      const customerCode = String(
-        normalizedRow['customercode'] || 
-        normalizedRow['mãkháchhàng'] || 
-        normalizedRow['selltocustomername'] ||
-        row['Customer code'] || row['Sell-to Customer Name'] || ''
-      ).trim();
-
-      let finalNoCode = noValue;
-      if (!finalNoCode && customerCode) {
-        const foundCustomer = customers.find(c => 
-          c.name.toLowerCase() === customerCode.toLowerCase() || 
-          c.code.toLowerCase() === customerCode.toLowerCase()
-        );
-        if (foundCustomer) {
-          finalNoCode = foundCustomer.code;
-        }
-      }
 
       const finalDestination = String(
         normalizedRow['finaldestination'] || 
@@ -2546,7 +2566,7 @@ export default function App() {
         lotNo: lotNo,
         actualIssuedQty: 0,
         remark,
-        loaiChiDinh,
+        loaiChiDinh: finalLoaiChiDinh,
         brand,
         customerCode,
         finalDestination,
@@ -2561,7 +2581,7 @@ export default function App() {
       no: index + 1
     })).sort((a, b) => {
       if (a.item !== b.item) return a.item.localeCompare(b.item);
-      return (a.loaiChiDinh || '').localeCompare(b.loaiChiDinh || '');
+      return (a.loaiChiDinh || 'NORMAL').localeCompare(b.loaiChiDinh || 'NORMAL');
     });
 
     // Apply rounding logic by ITEM and loaiChiDinh
