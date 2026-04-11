@@ -3501,9 +3501,12 @@ export default function App() {
                         deliveryNotes.forEach((item) => {
                           totalQtyErp += item.qtyErp;
                           totalActualQty += (item.actualQty || 0);
-                          if (!processedGroups.has(item.item)) {
+                          
+                          const groupKey = `${item.item}|${item.loaiChiDinh || 'NORMAL'}`;
+                          if (!processedGroups.has(groupKey)) {
+                            // Sum actualIssuedQty only once per group for the total
                             totalActualIssuedQty += (item.actualIssuedQty || 0);
-                            processedGroups.add(item.item);
+                            processedGroups.add(groupKey);
                           }
 
                           const row = worksheet.addRow([
@@ -3544,21 +3547,26 @@ export default function App() {
                           });
                         });
 
-                        let currentItem = '';
+                        let currentGroupKey = '';
                         let startMergeRow = 0;
                         const dataStartRow = 9;
 
                         deliveryNotes.forEach((item, index) => {
                           const rowIdx = dataStartRow + index;
-                          if (item.item !== currentItem) {
+                          const groupKey = `${item.item}|${item.loaiChiDinh || 'NORMAL'}`;
+                          
+                          if (groupKey !== currentGroupKey) {
                             if (startMergeRow !== 0 && (rowIdx - 1) > startMergeRow) {
-                              worksheet.mergeCells(startMergeRow, 10, rowIdx - 1, 10);
+                              worksheet.mergeCells(startMergeRow, 9, rowIdx - 1, 9); // Lot No
+                              worksheet.mergeCells(startMergeRow, 10, rowIdx - 1, 10); // Số lượng thực phát
                             }
-                            currentItem = item.item;
+                            currentGroupKey = groupKey;
                             startMergeRow = rowIdx;
                           }
+                          
                           if (index === deliveryNotes.length - 1) {
                             if (rowIdx > startMergeRow) {
+                              worksheet.mergeCells(startMergeRow, 9, rowIdx, 9);
                               worksheet.mergeCells(startMergeRow, 10, rowIdx, 10);
                             }
                           }
