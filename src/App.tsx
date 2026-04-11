@@ -455,24 +455,32 @@ export default function App() {
   };
 
   const recalculateActualQty = (notes: DeliveryNoteItem[]) => {
-    const groups = new Map<string, DeliveryNoteItem[]>();
+    const skuGroups = new Map<string, DeliveryNoteItem[]>();
     notes.forEach(item => {
-      const groupKey = `${item.item}|${item.loaiChiDinh || 'NORMAL'}`;
-      if (!groups.has(groupKey)) groups.set(groupKey, []);
-      groups.get(groupKey)!.push(item);
+      if (!skuGroups.has(item.item)) skuGroups.set(item.item, []);
+      skuGroups.get(item.item)!.push(item);
     });
 
-    groups.forEach(items => {
-      const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
-      const targetTotal = Math.round(totalQtyErp);
+    skuGroups.forEach(items => {
+      // 1. Calculate target sum for the SKU (sum of Math.ceil of designation subgroups)
+      const designationTotals = new Map<string, number>();
+      items.forEach(item => {
+        const key = item.loaiChiDinh || 'NORMAL';
+        designationTotals.set(key, (designationTotals.get(key) || 0) + item.qtyErp);
+      });
       
-      // Initial rounding for each row
+      let skuTarget = 0;
+      designationTotals.forEach(total => {
+        skuTarget += Math.ceil(total);
+      });
+
+      // 2. Initial rounding for each row
       items.forEach(item => {
         item.actualQty = Math.round(item.qtyErp);
       });
 
       const currentSum = items.reduce((sum, i) => sum + (i.actualQty || 0), 0);
-      const diff = targetTotal - currentSum;
+      const diff = skuTarget - currentSum;
 
       if (diff !== 0) {
         // Find priority index: Row with designation match in inventory
@@ -493,13 +501,12 @@ export default function App() {
           }
         }
 
-        // Fallback to row with largest fractional part if no match found
+        // Fallback to row with largest qtyErp if no match found
         if (priorityIdx === -1) {
-          let maxFraction = -1;
+          let maxVal = -1;
           items.forEach((item, idx) => {
-            const fraction = item.qtyErp - Math.floor(item.qtyErp);
-            if (fraction > maxFraction) {
-              maxFraction = fraction;
+            if (item.qtyErp > maxVal) {
+              maxVal = item.qtyErp;
               priorityIdx = idx;
             }
           });
@@ -2565,25 +2572,33 @@ export default function App() {
       return (a.loaiChiDinh || '').localeCompare(b.loaiChiDinh || '');
     });
 
-    // Apply rounding logic by ITEM and loaiChiDinh
-    const groups = new Map<string, DeliveryNoteItem[]>();
+    // Apply rounding logic by ITEM
+    const skuGroups = new Map<string, DeliveryNoteItem[]>();
     finalData.forEach(item => {
-      const groupKey = `${item.item}|${item.loaiChiDinh || 'NORMAL'}`;
-      if (!groups.has(groupKey)) groups.set(groupKey, []);
-      groups.get(groupKey)!.push(item);
+      if (!skuGroups.has(item.item)) skuGroups.set(item.item, []);
+      skuGroups.get(item.item)!.push(item);
     });
 
-    groups.forEach(items => {
-      const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
-      const targetTotal = Math.round(totalQtyErp);
+    skuGroups.forEach(items => {
+      // 1. Calculate target sum for the SKU (sum of Math.ceil of designation subgroups)
+      const designationTotals = new Map<string, number>();
+      items.forEach(item => {
+        const key = item.loaiChiDinh || 'NORMAL';
+        designationTotals.set(key, (designationTotals.get(key) || 0) + item.qtyErp);
+      });
       
-      // Initial rounding for each row
+      let skuTarget = 0;
+      designationTotals.forEach(total => {
+        skuTarget += Math.ceil(total);
+      });
+
+      // 2. Initial rounding for each row
       items.forEach(item => {
         item.actualQty = Math.round(item.qtyErp);
       });
 
       const currentSum = items.reduce((sum, i) => sum + (i.actualQty || 0), 0);
-      const diff = targetTotal - currentSum;
+      const diff = skuTarget - currentSum;
 
       if (diff !== 0) {
         // Find priority index: Row with designation match in inventory
@@ -2604,13 +2619,12 @@ export default function App() {
           }
         }
 
-        // Fallback to row with largest fractional part if no match found
+        // Fallback to row with largest qtyErp if no match found
         if (priorityIdx === -1) {
-          let maxFraction = -1;
+          let maxVal = -1;
           items.forEach((item, idx) => {
-            const fraction = item.qtyErp - Math.floor(item.qtyErp);
-            if (fraction > maxFraction) {
-              maxFraction = fraction;
+            if (item.qtyErp > maxVal) {
+              maxVal = item.qtyErp;
               priorityIdx = idx;
             }
           });
