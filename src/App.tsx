@@ -112,8 +112,8 @@ export default function App() {
     });
   }, []);
 
-  const [newProduct, setNewProduct] = useState<Partial<Product>>({
-    sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: ''
+  const [newProduct, setNewProduct] = useState<Partial<Product> & { quantity?: number }>({
+    sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: '', quantity: 0
   });
   const [newTransaction, setNewTransaction] = useState<Partial<Transaction>>({
     productId: '', type: 'inbound', quantity: 0, date: format(new Date(), 'dd/MM/yyyy'), partner: '', loaiChiDinh: '', lotNo: '', ghiChu: '', designationCode: ''
@@ -903,9 +903,36 @@ export default function App() {
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     let updatedProduct: Product;
-    if (editingId) {
+    const isEditing = !!editingId;
+    
+    if (isEditing) {
       updatedProduct = { ...newProduct, id: editingId } as Product;
       setProducts(products.map(p => p.id === editingId ? updatedProduct : p));
+      
+      // Handle quantity adjustment if editing from inventory
+      if (newProduct.quantity !== undefined) {
+        const currentBatch = inventory.find(i => i.productId === editingId && i.lotNo === newProduct.lotNo && i.designationCode === newProduct.designationCode);
+        const currentQty = currentBatch ? currentBatch.currentStock : 0;
+        const diff = (newProduct.quantity || 0) - currentQty;
+        
+        if (diff !== 0) {
+          const adjustment: Transaction = {
+            id: generateId(),
+            productId: updatedProduct.id,
+            type: diff > 0 ? 'inbound' : 'outbound',
+            quantity: Math.abs(diff),
+            date: format(new Date(), 'dd/MM/yyyy'),
+            partner: 'Điều chỉnh tồn kho',
+            lotNo: newProduct.lotNo || '',
+            ghiChu: 'Điều chỉnh số lượng từ giao diện tồn kho',
+            designationCode: newProduct.designationCode || '',
+            loaiChiDinh: newProduct.loaiChiDinh || ''
+          };
+          setTransactions(prev => [...prev, adjustment]);
+          api.transactions.upsert(adjustment).catch(err => console.error('Error syncing adjustment:', err));
+        }
+      }
+      
       setEditingId(null);
     } else {
       updatedProduct = {
@@ -913,6 +940,24 @@ export default function App() {
         id: generateId(),
       };
       setProducts([...products, updatedProduct]);
+      
+      // If quantity is provided for a new product, create an initial inbound transaction
+      if (newProduct.quantity && newProduct.quantity > 0) {
+        const initialInbound: Transaction = {
+          id: generateId(),
+          productId: updatedProduct.id,
+          type: 'inbound',
+          quantity: newProduct.quantity,
+          date: format(new Date(), 'dd/MM/yyyy'),
+          partner: 'Khởi tạo tồn kho',
+          lotNo: newProduct.lotNo || '',
+          ghiChu: 'Số lượng ban đầu khi tạo sản phẩm',
+          designationCode: newProduct.designationCode || '',
+          loaiChiDinh: newProduct.loaiChiDinh || ''
+        };
+        setTransactions(prev => [...prev, initialInbound]);
+        api.transactions.upsert(initialInbound).catch(err => console.error('Error syncing initial inbound:', err));
+      }
     }
     
     try {
@@ -924,7 +969,7 @@ export default function App() {
     }
     
     setIsProductModalOpen(false);
-    setNewProduct({ sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: '' });
+    setNewProduct({ sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: '', quantity: 0 });
   };
 
   const handleAddTransaction = async (e: React.FormEvent) => {
@@ -3037,7 +3082,11 @@ export default function App() {
                       <span className="hidden sm:inline">Xuất báo cáo</span>
                     </button>
                     <button 
-                      onClick={() => setIsProductModalOpen(true)}
+                      onClick={() => {
+                        setEditingId(null);
+                        setNewProduct({ sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: '', quantity: 0 });
+                        setIsProductModalOpen(true);
+                      }}
                       className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
                     >
                       <Plus size={14} />
@@ -3100,7 +3149,10 @@ export default function App() {
                                 <button 
                                   onClick={() => {
                                     setEditingId(item.productId);
-                                    setNewProduct(item);
+                                    setNewProduct({
+                                      ...item,
+                                      quantity: item.currentStock
+                                    });
                                     setIsProductModalOpen(true);
                                   }}
                                   className="p-1 hover:bg-gray-200 rounded transition-colors"
@@ -4485,6 +4537,16 @@ export default function App() {
                       onChange={e => setNewProduct({...newProduct, loaiChiDinh: e.target.value})}
                     />
                   </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold opacity-50">Số lượng</label>
+                  <input 
+                    type="number"
+                    step="any"
+                    className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none font-bold text-blue-600"
+                    value={newProduct.quantity || 0}
+                    onChange={e => setNewProduct({...newProduct, quantity: Number(e.target.value)})}
+                  />
                 </div>
                 <div className="flex gap-4 pt-4">
                   <button 
