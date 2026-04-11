@@ -2762,7 +2762,11 @@ export default function App() {
           />
         </nav>
 
-        <div className="p-6 mt-auto border-t border-[#141414]">
+        <div className="px-6 py-4 border-t border-[#141414]/10">
+          <StorageUsageBar />
+        </div>
+
+        <div className="p-6 border-t border-[#141414]">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-[#141414] text-[#E4E3E0] flex items-center justify-center text-xs font-bold">
               AD
@@ -5119,6 +5123,73 @@ function StatCard({ label, value, alert = false, bgColor = "bg-white/50", textCo
       )}>
         {value}
       </p>
+    </div>
+  );
+}
+
+function StorageUsageBar() {
+  const [usage, setUsage] = useState(0);
+  const limit = 5 * 1024 * 1024; // 5MB limit for localStorage
+
+  const calculateUsage = useCallback(() => {
+    let total = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key) {
+        total += (key.length + (localStorage.getItem(key) || '').length) * 2;
+      }
+    }
+    setUsage(total);
+  }, []);
+
+  useEffect(() => {
+    calculateUsage();
+    // Update every 5 seconds or when storage events happen
+    const interval = setInterval(calculateUsage, 5000);
+    window.addEventListener('storage', calculateUsage);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', calculateUsage);
+    };
+  }, [calculateUsage]);
+
+  const handleClearCache = () => {
+    if (window.confirm('Bạn có chắc chắn muốn xóa bộ nhớ đệm? Dữ liệu sẽ được tải lại từ máy chủ.')) {
+      api.clearCache();
+      calculateUsage();
+      window.location.reload(); // Reload to ensure data is fresh
+    }
+  };
+
+  const percentage = Math.min(Math.round((usage / limit) * 100), 100);
+  const usageInMB = (usage / (1024 * 1024)).toFixed(2);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-between items-end">
+        <p className="text-[9px] font-bold uppercase tracking-widest opacity-50">Dung lượng lưu trữ</p>
+        <p className="text-[10px] font-bold">{percentage}%</p>
+      </div>
+      <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+        <motion.div 
+          initial={{ width: 0 }}
+          animate={{ width: `${percentage}%` }}
+          className={cn(
+            "h-full transition-all duration-500",
+            percentage > 90 ? "bg-red-500" : percentage > 70 ? "bg-amber-500" : "bg-green-500"
+          )}
+        />
+      </div>
+      <div className="flex justify-between items-center">
+        <p className="text-[8px] opacity-40 italic">Đã dùng {usageInMB} MB / 5.00 MB</p>
+        <button 
+          onClick={handleClearCache}
+          className="text-[8px] font-bold uppercase tracking-tighter text-blue-600 hover:underline"
+        >
+          Xóa đệm
+        </button>
+      </div>
     </div>
   );
 }
