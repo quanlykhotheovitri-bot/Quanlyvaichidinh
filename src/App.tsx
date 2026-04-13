@@ -1920,9 +1920,6 @@ export default function App() {
         const updatedProducts = [...prev];
         const skuToProductIndex = new Map(updatedProducts.map((p, i) => [p.sku, i]));
 
-        let currentProductSku = '';
-        let currentProductName = '';
-
         data.forEach((row) => {
           const normalizedRow: any = {};
           Object.keys(row).forEach(key => {
@@ -1998,6 +1995,7 @@ export default function App() {
             updatedProducts.push(productData);
           }
         });
+
         api.products.upsertAll(updatedProducts).catch(err => console.error('Error syncing products:', err));
         return updatedProducts;
       });
@@ -2007,9 +2005,6 @@ export default function App() {
         const newProductsToAdd: Product[] = [];
         const skuToProductIndex = new Map(updatedProducts.map((p, i) => [p.sku, i]));
         const skuToNewProductIndex = new Map<string, number>();
-
-        let currentProductSku = '';
-        let currentProductName = '';
 
         data.forEach((row) => {
           const normalizedRow: any = {};
@@ -2114,79 +2109,99 @@ export default function App() {
 
         let currentSkuForTransaction = '';
 
-        const newTransactions: Transaction[] = data.map((row) => {
-          const normalizedRow: any = {};
-          Object.keys(row).forEach(key => {
-            normalizedRow[normalizeKey(key)] = row[key];
-          });
+        setTransactions(prevTransactions => {
+          const existingTransactionKeys = new Set(prevTransactions.map(t => 
+            `${t.productId}|${t.type}|${t.quantity}|${t.date}|${t.partner}|${t.lotNo}|${t.designationCode}`
+          ));
 
-          let sku = String(
-            normalizedRow['sku'] || 
-            normalizedRow['mãhàng'] || 
-            normalizedRow['mãhànghóa'] ||
-            normalizedRow['mãhh'] ||
-            normalizedRow['mãsp'] || 
-            normalizedRow['mãsảnphẩm'] || 
-            normalizedRow['mãvậttư'] ||
-            normalizedRow['itemno'] ||
-            normalizedRow['itemcode'] ||
-            normalizedRow['mã'] ||
-            normalizedRow['item'] ||
-            row.sku || row.SKU || row['Mã Hàng'] || ''
-          ).trim();
+          const newTransactions: Transaction[] = data.map((row) => {
+            const normalizedRow: any = {};
+            Object.keys(row).forEach(key => {
+              normalizedRow[normalizeKey(key)] = row[key];
+            });
 
-          if (!sku) {
-            if (currentSkuForTransaction) {
-              sku = currentSkuForTransaction;
+            let sku = String(
+              normalizedRow['sku'] || 
+              normalizedRow['mãhàng'] || 
+              normalizedRow['mãhànghóa'] ||
+              normalizedRow['mãhh'] ||
+              normalizedRow['mãsp'] || 
+              normalizedRow['mãsảnphẩm'] || 
+              normalizedRow['mãvậttư'] ||
+              normalizedRow['itemno'] ||
+              normalizedRow['itemcode'] ||
+              normalizedRow['mã'] ||
+              normalizedRow['item'] ||
+              row.sku || row.SKU || row['Mã Hàng'] || ''
+            ).trim();
+
+            if (!sku) {
+              if (currentSkuForTransaction) {
+                sku = currentSkuForTransaction;
+              } else {
+                return null;
+              }
             } else {
+              currentSkuForTransaction = sku;
+            }
+
+            const product = finalProductsMap.get(sku);
+            if (!product) return null;
+
+            const rawDate = normalizedRow['date'] || normalizedRow['ngày'] || normalizedRow['ngàynhập'] || normalizedRow['ngàyxuất'] || row.date || row.Date || row['Ngày nhập'] || row['Ngày xuất'];
+            let formattedDate = format(new Date(), 'dd/MM/yyyy');
+            
+            if (rawDate) {
+              if (typeof rawDate === 'number') {
+                const date = XLSX.SSF.parse_date_code(rawDate);
+                formattedDate = format(new Date(date.y, date.m - 1, date.d), 'dd/MM/yyyy');
+              } else {
+                formattedDate = String(rawDate).trim();
+              }
+            }
+
+            const rowLoai = normalizedRow['loaichidinh'] !== undefined ? String(normalizedRow['loaichidinh']).trim() : 
+                           (normalizedRow['loạichỉđịnh'] !== undefined ? String(normalizedRow['loạichỉđịnh']).trim() : undefined);
+            const rowLot = normalizedRow['lotno'] !== undefined ? String(normalizedRow['lotno']).trim() : 
+                          (normalizedRow['lotno.'] !== undefined ? String(normalizedRow['lotno.']).trim() : undefined);
+            const rowGhiChu = normalizedRow['ghichu'] !== undefined ? String(normalizedRow['ghichu']).trim() : 
+                             (normalizedRow['ghichú'] !== undefined ? String(normalizedRow['ghichú']).trim() : undefined);
+            const rowDesignation = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).replace(/\s+/g, '') : 
+                                  (normalizedRow['mãchỉđịnh'] !== undefined ? String(normalizedRow['mãchỉđịnh']).replace(/\s+/g, '') : undefined);
+
+            const quantity = Number(normalizedRow['quantity'] || normalizedRow['sốlượng'] || normalizedRow['sốlượngnhập'] || normalizedRow['sốlượngxuất'] || row.quantity || row.Quantity || row['Số lượng nhập'] || row['Số lượng xuất'] || 0);
+            const partner = normalizedRow['partner'] || normalizedRow['đốitác'] || normalizedRow['kháchhàng'] || normalizedRow['nhàcungcấp'] || row.partner || row.Partner || 'N/A';
+            const loaiChiDinh = rowLoai ?? '';
+            const lotNo = rowLot ?? product?.lotNo ?? '';
+            const ghiChu = rowGhiChu ?? product?.ghiChu ?? '';
+            const designationCode = rowDesignation ?? product?.designationCode ?? '';
+
+            const transactionKey = `${product.id}|${activeTab}|${quantity}|${formattedDate}|${partner}|${lotNo}|${designationCode}`;
+            
+            if (existingTransactionKeys.has(transactionKey)) {
               return null;
             }
-          } else {
-            currentSkuForTransaction = sku;
+
+            return {
+              id: generateId(),
+              productId: product.id,
+              type: activeTab as 'inbound' | 'outbound',
+              quantity,
+              date: formattedDate,
+              partner,
+              loaiChiDinh,
+              lotNo,
+              ghiChu,
+              designationCode
+            };
+          }).filter(Boolean) as Transaction[];
+
+          if (newTransactions.length > 0) {
+            api.transactions.upsertAll(newTransactions).catch(err => console.error('Error syncing transactions:', err));
+            return [...prevTransactions, ...newTransactions];
           }
-
-          const product = finalProductsMap.get(sku);
-          if (!product) return null;
-
-          const rawDate = normalizedRow['date'] || normalizedRow['ngày'] || normalizedRow['ngàynhập'] || normalizedRow['ngàyxuất'] || row.date || row.Date || row['Ngày nhập'] || row['Ngày xuất'];
-          let formattedDate = format(new Date(), 'dd/MM/yyyy');
-          
-          if (rawDate) {
-            if (typeof rawDate === 'number') {
-              const date = XLSX.SSF.parse_date_code(rawDate);
-              formattedDate = format(new Date(date.y, date.m - 1, date.d), 'dd/MM/yyyy');
-            } else {
-              formattedDate = String(rawDate).trim();
-            }
-          }
-
-          const rowLoai = normalizedRow['loaichidinh'] !== undefined ? String(normalizedRow['loaichidinh']).trim() : 
-                         (normalizedRow['loạichỉđịnh'] !== undefined ? String(normalizedRow['loạichỉđịnh']).trim() : undefined);
-          const rowLot = normalizedRow['lotno'] !== undefined ? String(normalizedRow['lotno']).trim() : 
-                        (normalizedRow['lotno.'] !== undefined ? String(normalizedRow['lotno.']).trim() : undefined);
-          const rowGhiChu = normalizedRow['ghichu'] !== undefined ? String(normalizedRow['ghichu']).trim() : 
-                           (normalizedRow['ghichú'] !== undefined ? String(normalizedRow['ghichú']).trim() : undefined);
-          const rowDesignation = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).replace(/\s+/g, '') : 
-                                (normalizedRow['mãchỉđịnh'] !== undefined ? String(normalizedRow['mãchỉđịnh']).replace(/\s+/g, '') : undefined);
-
-          return {
-            id: generateId(),
-            productId: product.id,
-            type: activeTab as 'inbound' | 'outbound',
-            quantity: Number(normalizedRow['quantity'] || normalizedRow['sốlượng'] || normalizedRow['sốlượngnhập'] || normalizedRow['sốlượngxuất'] || row.quantity || row.Quantity || row['Số lượng nhập'] || row['Số lượng xuất'] || 0),
-            date: formattedDate,
-            partner: normalizedRow['partner'] || normalizedRow['đốitác'] || normalizedRow['kháchhàng'] || normalizedRow['nhàcungcấp'] || row.partner || row.Partner || 'N/A',
-            loaiChiDinh: rowLoai ?? '',
-            lotNo: rowLot ?? product?.lotNo ?? '',
-            ghiChu: rowGhiChu ?? product?.ghiChu ?? '',
-            designationCode: rowDesignation ?? product?.designationCode ?? ''
-          };
-        }).filter(Boolean) as Transaction[];
-
-        if (newTransactions.length > 0) {
-          setTransactions(prev => [...prev, ...newTransactions]);
-          api.transactions.upsertAll(newTransactions).catch(err => console.error('Error syncing transactions:', err));
-        }
+          return prevTransactions;
+        });
 
         api.products.upsertAll(finalProducts).catch(err => console.error('Error syncing products:', err));
         return finalProducts;
