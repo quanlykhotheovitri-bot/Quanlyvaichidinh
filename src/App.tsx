@@ -2793,7 +2793,7 @@ export default function App() {
         </nav>
 
         <div className="px-6 py-4 border-t border-[#141414]/10">
-          <StorageUsageBar />
+          <StorageUsageBar showNotification={showNotification} />
         </div>
 
         <div className="p-6 border-t border-[#141414]">
@@ -5180,7 +5180,7 @@ function StatCard({ label, value, alert = false, bgColor = "bg-white/50", textCo
   );
 }
 
-function StorageUsageBar() {
+function StorageUsageBar({ showNotification }: { showNotification: (message: string, type?: 'success' | 'error') => void }) {
   const [usage, setUsage] = useState(0);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const limit = 5 * 1024 * 1024; // 5MB limit for localStorage
@@ -5227,7 +5227,7 @@ function StorageUsageBar() {
     const backupData = api.getBackupData();
     const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
     const timestamp = format(new Date(), 'yyyyMMdd_HHmmss');
-    saveAs(blob, `warehouse_backup_${timestamp}.json`);
+    saveAs(blob, `warehouse_cache_backup_${timestamp}.json`);
     
     // Clear after a short delay to ensure download started
     setTimeout(() => {
@@ -5236,6 +5236,20 @@ function StorageUsageBar() {
       setIsBackupModalOpen(false);
       window.location.reload();
     }, 1000);
+  };
+
+  const handleFullSystemBackup = async () => {
+    try {
+      showNotification('Đang chuẩn bị dữ liệu sao lưu toàn hệ thống...', 'success');
+      const fullData = await api.getFullBackupData();
+      const blob = new Blob([JSON.stringify(fullData, null, 2)], { type: 'application/json' });
+      const timestamp = format(new Date(), 'yyyyMMdd_HHmmss');
+      saveAs(blob, `full_system_backup_${timestamp}.json`);
+      showNotification('Đã tải về bản sao lưu toàn hệ thống thành công!', 'success');
+    } catch (error) {
+      console.error('Full backup error:', error);
+      showNotification('Lỗi khi sao lưu toàn hệ thống.', 'error');
+    }
   };
 
   const usageInMB = (usage / (1024 * 1024)).toFixed(2);
@@ -5258,12 +5272,22 @@ function StorageUsageBar() {
       </div>
       <div className="flex justify-between items-center">
         <p className="text-[8px] opacity-40 italic">Đã dùng {usageInMB} MB / 5.00 MB</p>
-        <button 
-          onClick={handleClearCache}
-          className="text-[8px] font-bold uppercase tracking-tighter text-blue-600 hover:underline"
-        >
-          Xóa đệm
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={handleFullSystemBackup}
+            className="text-[8px] font-bold uppercase tracking-tighter text-green-600 hover:underline flex items-center gap-0.5"
+            title="Sao lưu toàn bộ dữ liệu từ máy chủ về máy tính"
+          >
+            <Download size={8} />
+            Sao lưu hệ thống
+          </button>
+          <button 
+            onClick={handleClearCache}
+            className="text-[8px] font-bold uppercase tracking-tighter text-blue-600 hover:underline"
+          >
+            Xóa đệm
+          </button>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -5290,11 +5314,18 @@ function StorageUsageBar() {
               </div>
               <div className="flex flex-col gap-3 pt-4">
                 <button 
+                  onClick={handleFullSystemBackup}
+                  className="w-full py-3 bg-green-600 text-white text-sm font-bold uppercase tracking-widest hover:bg-green-700 transition-colors shadow-lg flex items-center justify-center gap-2"
+                >
+                  <Download size={18} />
+                  Sao lưu toàn bộ hệ thống (Server)
+                </button>
+                <button 
                   onClick={handleBackupAndClear}
                   className="w-full py-4 bg-red-600 text-white text-sm font-bold uppercase tracking-widest hover:bg-red-700 transition-colors shadow-lg flex items-center justify-center gap-2"
                 >
                   <Download size={18} />
-                  Đóng gói & Lưu dữ liệu ngay
+                  Đóng gói & Lưu bộ nhớ đệm (Máy)
                 </button>
                 <button 
                   onClick={() => setIsBackupModalOpen(false)}

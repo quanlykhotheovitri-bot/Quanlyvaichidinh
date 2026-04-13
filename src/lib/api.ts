@@ -696,6 +696,42 @@ export const api = {
       }
     }
   },
+  async getFullBackupData() {
+    try {
+      const [
+        products,
+        transactions,
+        customers,
+        deliveryNotes,
+        locationEntries,
+        savedDeliveryNotes,
+        header
+      ] = await Promise.all([
+        this.products.getAll(),
+        this.transactions.getAll(),
+        this.customers.getAll(),
+        this.deliveryNotes.getAll(),
+        this.locationEntries.getAll(),
+        this.savedDeliveryNotes.getAll(),
+        this.deliveryNoteHeader.get()
+      ]);
+
+      return {
+        products,
+        transactions,
+        customers,
+        deliveryNotes,
+        locationEntries,
+        savedDeliveryNotes,
+        header,
+        backupDate: new Date().toISOString(),
+        version: '1.0.0'
+      };
+    } catch (error) {
+      console.error('Error fetching full backup data:', error);
+      throw error;
+    }
+  },
   getBackupData() {
     const backup: Record<string, any> = {};
     for (let i = 0; i < localStorage.length; i++) {
