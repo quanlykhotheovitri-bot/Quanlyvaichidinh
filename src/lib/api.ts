@@ -23,7 +23,7 @@ const setCache = <T>(key: string, value: T, ttl: number = 3600000): void => {
     const expiry = Date.now() + ttl;
     localStorage.setItem(CACHE_KEY_PREFIX + key, JSON.stringify({ value, expiry }));
   } catch (e) {
-    console.warn('LocalStorage quota exceeded, could not cache ' + key);
+    // Silently fail if quota exceeded as per user request to remove warnings
   }
 };
 

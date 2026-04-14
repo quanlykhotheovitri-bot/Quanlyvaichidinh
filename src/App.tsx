@@ -5307,12 +5307,6 @@ function StorageUsageBar({ showNotification }: { showNotification: (message: str
     };
   }, [calculateUsage]);
 
-  useEffect(() => {
-    if (percentage >= 90 && !isBackupModalOpen) {
-      setIsBackupModalOpen(true);
-    }
-  }, [percentage, isBackupModalOpen]);
-
   const handleClearCache = () => {
     if (window.confirm('Bạn có chắc chắn muốn xóa bộ nhớ đệm? Dữ liệu sẽ được tải lại từ máy chủ.')) {
       api.clearCache();
@@ -5389,52 +5383,7 @@ function StorageUsageBar({ showNotification }: { showNotification: (message: str
       </div>
 
       <AnimatePresence>
-        {isBackupModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-[#E4E3E0] border-2 border-red-600 p-8 w-full max-w-md space-y-6 text-center shadow-2xl"
-            >
-              <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto animate-pulse">
-                <AlertTriangle size={40} />
-              </div>
-              <div className="space-y-2">
-                <h3 className="font-serif italic text-3xl text-red-600">Bộ nhớ gần đầy!</h3>
-                <p className="text-sm font-medium">
-                  Dung lượng lưu trữ đã đạt <span className="text-red-600 font-bold">{percentage}%</span>. 
-                  Để tránh mất dữ liệu và đảm bảo ứng dụng hoạt động ổn định, vui lòng đóng gói và lưu dữ liệu về máy.
-                </p>
-                <p className="text-xs opacity-60 italic">
-                  * Dữ liệu sẽ được tự động xóa sau khi lưu thành công.
-                </p>
-              </div>
-              <div className="flex flex-col gap-3 pt-4">
-                <button 
-                  onClick={handleFullSystemBackup}
-                  className="w-full py-3 bg-green-600 text-white text-sm font-bold uppercase tracking-widest hover:bg-green-700 transition-colors shadow-lg flex items-center justify-center gap-2"
-                >
-                  <Download size={18} />
-                  Sao lưu toàn bộ hệ thống (Server)
-                </button>
-                <button 
-                  onClick={handleBackupAndClear}
-                  className="w-full py-4 bg-red-600 text-white text-sm font-bold uppercase tracking-widest hover:bg-red-700 transition-colors shadow-lg flex items-center justify-center gap-2"
-                >
-                  <Download size={18} />
-                  Đóng gói & Lưu bộ nhớ đệm (Máy)
-                </button>
-                <button 
-                  onClick={() => setIsBackupModalOpen(false)}
-                  className="w-full py-2 text-[10px] font-bold uppercase tracking-widest opacity-50 hover:opacity-100 transition-opacity"
-                >
-                  Để sau (Không khuyến khích)
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
+        {/* Modal removed as per user request */}
       </AnimatePresence>
     </div>
   );
