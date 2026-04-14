@@ -448,7 +448,8 @@ export default function App() {
 
   const handleDeleteDeliveryNoteItem = (id: string) => {
     setDeliveryNotes(prev => {
-      const updatedNotes = prev.filter(item => item.id !== id);
+      const filtered = prev.filter(item => item.id !== id);
+      const updatedNotes = recalculateActualQty(filtered);
       api.deliveryNotes.upsertAll(updatedNotes).catch(error => {
         console.error('Error syncing delivery notes:', error);
       });
@@ -456,20 +457,6 @@ export default function App() {
     });
     showNotification('Đã xóa dòng khỏi phiếu giao hàng', 'success');
   };
-
-  const selectShortageRows = useCallback(() => {
-    const shortageIds = deliveryNotes
-      .filter(item => item.stock && item.stock.toLowerCase().includes('thiếu'))
-      .map(item => item.id);
-    
-    if (shortageIds.length === 0) {
-      showNotification('Không có dòng nào bị thiếu tồn kho', 'success');
-      return;
-    }
-    
-    setSelectedRows(shortageIds);
-    showNotification(`Đã chọn ${shortageIds.length} dòng bị thiếu tồn kho. Bạn có thể bấm Xóa để loại bỏ chúng.`, 'success');
-  }, [deliveryNotes]);
 
   const confirmDeleteDeliveryNoteItem = async () => {
     if (deliveryNoteDeleteId !== null) {
@@ -534,12 +521,15 @@ export default function App() {
       });
 
       items.forEach((item, idx) => {
-        if (idx === maxIdx) {
-          // Add the difference to the largest row
-          item.actualQty = Number((item.qtyErp + diff).toFixed(4));
-        } else {
-          // Keep original qtyErp for other rows
-          item.actualQty = item.qtyErp;
+        const newActualQty = idx === maxIdx 
+          ? Number((item.qtyErp + diff).toFixed(4))
+          : item.qtyErp;
+        
+        if (item.actualQty !== newActualQty) {
+          item.actualQty = newActualQty;
+          item.assignedLots = [];
+          item.actualIssuedQty = 0;
+          item.stock = '';
         }
       });
     });
@@ -1497,15 +1487,13 @@ export default function App() {
       }
     } else if (currentTab === 'deliveryNote') {
       if (deliveryNoteSubTab === 'preview') {
-        setDeliveryNotes(prev => prev.filter(item => !idsToDelete.includes(item.id)));
-        try {
-          await api.deliveryNotes.deleteMany(idsToDelete);
-          showNotification('Đã xóa các mục phiếu giao nhận thành công.');
-        } catch (error) {
-          console.error('Error in bulk delete delivery notes:', error);
-          showNotification('Lỗi khi xóa phiếu giao nhận.', 'error');
-          loadData();
-        }
+        setDeliveryNotes(prev => {
+          const filtered = prev.filter(item => !idsToDelete.includes(item.id));
+          const updated = recalculateActualQty(filtered);
+          api.deliveryNotes.upsertAll(updated).catch(err => console.error('Error syncing delivery notes:', err));
+          return updated;
+        });
+        showNotification('Đã xóa các mục phiếu giao nhận thành công.');
       } else {
         setSavedDeliveryNotes(prev => prev.filter(n => !idsToDelete.includes(n.id)));
         try {
@@ -1791,12 +1779,15 @@ export default function App() {
       return;
     }
 
+    // Luôn làm tròn lại số lượng thực tế trước khi gán Lot
+    const roundedNotes = recalculateActualQty(deliveryNotes);
+
     const workingInventory = inventory.map(item => ({
       ...item,
       tempStock: item.currentStock
     }));
 
-    const updatedNotes = deliveryNotes.map(item => {
+    const updatedNotes = roundedNotes.map(item => {
       const matches = findAssignedFabricLot(
         { sku: item.item, rpro: item.ovnProductionOrder, no: item.noCode },
         workingInventory
@@ -2702,47 +2693,13 @@ export default function App() {
       };
     });
 
-    const finalData = mappedData.map((item, index) => ({
+    const finalData = recalculateActualQty(mappedData.map((item, index) => ({
       ...item,
       no: index + 1
     })).sort((a, b) => {
       if (a.item !== b.item) return a.item.localeCompare(b.item);
       return (a.loaiChiDinh || 'NORMAL').localeCompare(b.loaiChiDinh || 'NORMAL');
-    });
-
-    // Apply rounding logic by ITEM and loaiChiDinh
-    const groups = new Map<string, DeliveryNoteItem[]>();
-    finalData.forEach(item => {
-      const groupKey = `${item.item}|${item.loaiChiDinh || 'NORMAL'}`;
-      if (!groups.has(groupKey)) groups.set(groupKey, []);
-      groups.get(groupKey)!.push(item);
-    });
-
-    groups.forEach(items => {
-      const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
-      const targetTotal = Math.ceil(totalQtyErp);
-      const diff = targetTotal - totalQtyErp;
-
-      // Find row with largest qtyErp in this group
-      let maxIdx = 0;
-      let maxVal = -1;
-      items.forEach((item, idx) => {
-        if (item.qtyErp > maxVal) {
-          maxVal = item.qtyErp;
-          maxIdx = idx;
-        }
-      });
-
-      items.forEach((item, idx) => {
-        if (idx === maxIdx) {
-          // Add the difference to the largest row
-          item.actualQty = Number((item.qtyErp + diff).toFixed(4));
-        } else {
-          // Keep original qtyErp for other rows
-          item.actualQty = item.qtyErp;
-        }
-      });
-    });
+    }));
 
     setDeliveryNotes(finalData);
     api.deliveryNotes.upsertAll(finalData).catch(err => console.error('Error syncing delivery notes:', err));
@@ -3538,14 +3495,6 @@ export default function App() {
                     </div>
                     {deliveryNoteSubTab === 'preview' && (
                       <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                        <button 
-                          onClick={selectShortageRows}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 border border-red-600 text-red-600 text-[10px] font-bold uppercase tracking-wider hover:bg-red-50 transition-colors"
-                          title="Chọn tất cả các dòng đang bị thiếu tồn kho"
-                        >
-                          <AlertTriangle size={14} />
-                          <span className="hidden md:inline">Chọn dòng thiếu</span>
-                        </button>
                         <button 
                           onClick={autoAssignLotsFromUI}
                           className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-blue-700 transition-colors"
