@@ -19,8 +19,12 @@ const getCache = <T>(key: string): T | null => {
 };
 
 const setCache = <T>(key: string, value: T, ttl: number = 3600000): void => {
-  const expiry = Date.now() + ttl;
-  localStorage.setItem(CACHE_KEY_PREFIX + key, JSON.stringify({ value, expiry }));
+  try {
+    const expiry = Date.now() + ttl;
+    localStorage.setItem(CACHE_KEY_PREFIX + key, JSON.stringify({ value, expiry }));
+  } catch (e) {
+    console.warn('LocalStorage quota exceeded, could not cache ' + key);
+  }
 };
 
 const updateCacheSingle = <T extends {id: string}>(key: string, item: T) => {
@@ -32,6 +36,15 @@ const updateCacheSingle = <T extends {id: string}>(key: string, item: T) => {
     current.push(item);
   }
   setCache(key, current, 30 * 24 * 3600000);
+};
+
+const updateCacheMultiple = <T extends {id: string}>(key: string, items: T[]) => {
+  const current = getCache<T[]>(key) || [];
+  const currentMap = new Map(current.map(item => [item.id, item]));
+  items.forEach(item => {
+    currentMap.set(item.id, item);
+  });
+  setCache(key, Array.from(currentMap.values()), 30 * 24 * 3600000);
 };
 
 const chunkArray = <T>(array: T[], size: number): T[][] => {
@@ -110,11 +123,16 @@ export const api = {
         delete (p as any).loaiChiDinh;
         return p;
       });
-      setCache('products', products, 30 * 24 * 3600000); // Optimistic cache update
+      updateCacheMultiple('products', products); // Correctly update cache
       try {
-        const { error } = await supabase.from('products').upsert(payload);
-        if (error) throw error;
+        const chunks = chunkArray(payload, 500);
+        for (const chunk of chunks) {
+          const { error } = await supabase.from('products').upsert(chunk);
+          if (error) throw error;
+          await delay(50);
+        }
       } catch (err) {
+        console.error('Error in products upsertAll:', err);
         console.warn('Offline mode: upsertAll saved locally');
       }
     },
@@ -218,11 +236,18 @@ export const api = {
         delete (t as any).designationCode;
         return t;
       });
-      setCache('transactions', transactions, 30 * 24 * 3600000);
+      
+      updateCacheMultiple('transactions', transactions);
+      
       try {
-        const { error } = await supabase.from('transactions').upsert(payload);
-        if (error) throw error;
+        const chunks = chunkArray(payload, 500);
+        for (const chunk of chunks) {
+          const { error } = await supabase.from('transactions').upsert(chunk);
+          if (error) throw error;
+          await delay(50);
+        }
       } catch (err) {
+        console.error('Error in transactions upsertAll:', err);
         console.warn('Offline mode: upsertAll saved locally');
       }
     },
@@ -312,11 +337,16 @@ export const api = {
     },
     async upsertAll(customers: Customer[]): Promise<void> {
       if (!customers.length) return;
-      setCache('customers', customers, 30 * 24 * 3600000);
+      updateCacheMultiple('customers', customers);
       try {
-        const { error } = await supabase.from('customers').upsert(customers);
-        if (error) throw error;
+        const chunks = chunkArray(customers, 500);
+        for (const chunk of chunks) {
+          const { error } = await supabase.from('customers').upsert(chunk);
+          if (error) throw error;
+          await delay(50);
+        }
       } catch (err) {
+        console.error('Error in customers upsertAll:', err);
         console.warn('Offline mode: upsertAll saved locally');
       }
     },
@@ -402,11 +432,16 @@ export const api = {
         delete (i as any).noCode;
         return i;
       });
-      setCache('delivery_notes', items, 30 * 24 * 3600000);
+      updateCacheMultiple('delivery_notes', items);
       try {
-        const { error } = await supabase.from('delivery_notes').upsert(payload);
-        if (error) throw error;
+        const chunks = chunkArray(payload, 500);
+        for (const chunk of chunks) {
+          const { error } = await supabase.from('delivery_notes').upsert(chunk);
+          if (error) throw error;
+          await delay(50);
+        }
       } catch (err) {
+        console.error('Error in deliveryNotes upsertAll:', err);
         console.warn('Offline mode: upsertAll delivery notes saved locally');
       }
     },
@@ -483,31 +518,28 @@ export const api = {
         created_at: e.created_at
       }));
       
-      setCache('location_entries', entries, 30 * 24 * 3600000);
+      updateCacheMultiple('location_entries', entries);
       try {
-        const { error } = await supabase.from('location_entries').upsert(payload1);
-        
-        if (error) {
-          // Fallback for scantype (lowercase in older PostgREST schemas)
-          const payload2 = entries.map(e => ({
-            id: e.id,
-            qrcode: e.qrcode,
-            sku: e.sku,
-            partner: e.partner,
-            date: e.date,
-            location: e.location,
-            note: e.note,
-            quantity: e.quantity,
-            type: e.type,
-            scantype: e.scanType,
-            created_at: e.created_at
-          }));
-          const retry = await supabase.from('location_entries').upsert(payload2);
-          if (retry.error) {
-            throw retry.error;
+        const chunks = chunkArray(payload1, 500);
+        for (const chunk of chunks) {
+          const { error } = await supabase.from('location_entries').upsert(chunk);
+          
+          if (error) {
+            // Fallback for scantype (lowercase in older PostgREST schemas)
+            const payload2 = chunk.map((e: any) => ({
+              ...e,
+              scantype: e.scanType
+            }));
+            delete (payload2 as any).scanType;
+            const retry = await supabase.from('location_entries').upsert(payload2);
+            if (retry.error) {
+              throw retry.error;
+            }
           }
+          await delay(50);
         }
       } catch (err) {
+        console.error('Error in locationEntries upsertAll:', err);
         console.warn('Offline mode: upsertAll location entries saved locally');
       }
     },

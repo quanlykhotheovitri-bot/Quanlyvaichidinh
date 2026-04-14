@@ -163,7 +163,10 @@ export default function App() {
   }, []);
 
   const normalizeDateForMatching = useCallback((lot: string): string => {
-    const slashMatch = lot.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (!lot) return '';
+    const cleanLot = lot.trim();
+    
+    const slashMatch = cleanLot.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
     if (slashMatch) {
       let [_, d, m, y] = slashMatch;
       const year = y.length === 2 ? '20' + y : y;
@@ -172,7 +175,7 @@ export default function App() {
       return `${day}/${month}/${year}`;
     }
     
-    const hyphenMatch = lot.match(/(\d{1,2})-(\d{1,2})-(\d{2,4})/);
+    const hyphenMatch = cleanLot.match(/(\d{1,2})-(\d{1,2})-(\d{2,4})/);
     if (hyphenMatch) {
       let [_, d, m, y] = hyphenMatch;
       const year = y.length === 2 ? '20' + y : y;
@@ -181,15 +184,33 @@ export default function App() {
       return `${day}/${month}/${year}`;
     }
 
-    const isoMatch = lot.match(/(\d{2,4})-(\d{1,2})-(\d{1,2})/);
+    const isoMatch = cleanLot.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
     if (isoMatch) {
       let [_, y, m, d] = isoMatch;
-      const year = y.length === 2 ? '20' + y : y;
       const day = d.padStart(2, '0');
       const month = m.padStart(2, '0');
-      return `${day}/${month}/${year}`;
+      return `${day}/${month}/${y}`;
     }
-    return '';
+
+    // Handle YYYYMMDD
+    if (/^\d{8}$/.test(cleanLot)) {
+      const y = cleanLot.substring(0, 4);
+      const m = cleanLot.substring(4, 6);
+      const d = cleanLot.substring(6, 8);
+      // Check if it looks like a valid year (e.g. 20xx)
+      if (parseInt(y) > 1900 && parseInt(y) < 2100 && parseInt(m) <= 12 && parseInt(d) <= 31) {
+        return `${d}/${m}/${y}`;
+      }
+      // Or maybe DDMMYYYY
+      const d2 = cleanLot.substring(0, 2);
+      const m2 = cleanLot.substring(2, 4);
+      const y2 = cleanLot.substring(4, 8);
+      if (parseInt(y2) > 1900 && parseInt(y2) < 2100 && parseInt(m2) <= 12 && parseInt(d2) <= 31) {
+        return `${d2}/${m2}/${y2}`;
+      }
+    }
+
+    return cleanLot; // Return original if no match, instead of empty string
   }, []);
 
   const resolveByPriority1 = useCallback((sku: string, rpro: string, inventoryRows: InventoryItem[]) => {
@@ -1254,7 +1275,9 @@ export default function App() {
     let finalInventoryEntries: LocationEntry[] = [];
     let entriesToDeleteFromDb: LocationEntry[] = [];
     
+    let prevEntriesForSync: LocationEntry[] = [];
     setLocationInventoryEntries(prev => {
+      prevEntriesForSync = prev;
       const inventoryGrouped = new Map<string, LocationEntry>();
       prev.forEach(entry => {
         const key = `${entry.qrcode}|${entry.location || ''}`;
@@ -1304,10 +1327,21 @@ export default function App() {
     try {
       const syncTasks: Promise<void>[] = [
         api.locationEntries.upsertAll(logEntriesToAdd),
-        api.locationEntries.upsertAll(finalInventoryEntries),
       ];
+      
+      // Only upsert changed inventory entries
+      const changedInventoryEntries = finalInventoryEntries.filter(e => {
+        const prev = prevEntriesForSync.find(p => p.id === e.id);
+        if (!prev) return true; // New
+        return JSON.stringify(prev) !== JSON.stringify(e); // Changed
+      });
+
+      if (changedInventoryEntries.length > 0) {
+        syncTasks.push(api.locationEntries.upsertAll(changedInventoryEntries));
+      }
+
       if (entriesToDeleteFromDb.length > 0) {
-        entriesToDeleteFromDb.forEach(e => syncTasks.push(api.locationEntries.delete(e.id)));
+        syncTasks.push(api.locationEntries.deleteMany(entriesToDeleteFromDb.map(e => e.id)));
       }
       await Promise.all(syncTasks);
       showNotification('Nhập file vị trí thành công.');
@@ -1657,11 +1691,20 @@ export default function App() {
     
     const skuLower = sku.toLowerCase().trim();
     const normalizedLotDate = normalizeDateForMatching(lotNo || '');
+    const rawLot = (lotNo || '').trim();
     
-    const matches = locationInventoryEntries.filter(e => 
-      (e.sku || '').toLowerCase().trim() === skuLower && 
-      (e.date || '') === normalizedLotDate
-    );
+    const matches = locationInventoryEntries.filter(e => {
+      const entrySku = (e.sku || '').toLowerCase().trim();
+      if (entrySku !== skuLower) return false;
+
+      const entryDate = (e.date || '').trim();
+      const normalizedEntryDate = normalizeDateForMatching(entryDate);
+
+      return entryDate === rawLot || 
+             entryDate === normalizedLotDate || 
+             normalizedEntryDate === rawLot || 
+             normalizedEntryDate === normalizedLotDate;
+    });
     
     if (matches.length === 0) return 'Chưa có vị trí';
 
@@ -1919,6 +1962,7 @@ export default function App() {
       setProducts(prev => {
         const updatedProducts = [...prev];
         const skuToProductIndex = new Map(updatedProducts.map((p, i) => [p.sku, i]));
+        const productsToUpsert: Product[] = [];
 
         data.forEach((row) => {
           const normalizedRow: any = {};
@@ -1989,20 +2033,39 @@ export default function App() {
           };
 
           if (existingIndex !== undefined) {
-            updatedProducts[existingIndex] = productData;
+            // Only update if something changed
+            const existing = updatedProducts[existingIndex];
+            const hasChanged = 
+              existing.name !== productData.name ||
+              existing.category !== productData.category ||
+              existing.unit !== productData.unit ||
+              existing.minStock !== productData.minStock ||
+              existing.lotNo !== productData.lotNo ||
+              existing.ghiChu !== productData.ghiChu ||
+              existing.designationCode !== productData.designationCode ||
+              existing.loaiChiDinh !== productData.loaiChiDinh;
+
+            if (hasChanged) {
+              updatedProducts[existingIndex] = productData;
+              productsToUpsert.push(productData);
+            }
           } else {
             skuToProductIndex.set(sku, updatedProducts.length);
             updatedProducts.push(productData);
+            productsToUpsert.push(productData);
           }
         });
 
-        api.products.upsertAll(updatedProducts).catch(err => console.error('Error syncing products:', err));
+        if (productsToUpsert.length > 0) {
+          api.products.upsertAll(productsToUpsert).catch(err => console.error('Error syncing products:', err));
+        }
         return updatedProducts;
       });
     } else if (activeTab === 'inbound' || activeTab === 'outbound') {
       setProducts(prevProducts => {
         const updatedProducts = [...prevProducts];
         const newProductsToAdd: Product[] = [];
+        const changedProducts: Product[] = [];
         const skuToProductIndex = new Map(updatedProducts.map((p, i) => [p.sku, i]));
         const skuToNewProductIndex = new Map<string, number>();
 
@@ -2061,17 +2124,26 @@ export default function App() {
           const alreadyInNewIndex = skuToNewProductIndex.get(sku);
           
           if (existingIndex !== undefined) {
-            if (name !== undefined && updatedProducts[existingIndex].name !== name && name !== '') {
+            let hasChanged = false;
+            const existing = updatedProducts[existingIndex];
+            if (name !== undefined && existing.name !== name && name !== '') {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], name };
+              hasChanged = true;
             }
-            if (designationCode !== undefined && updatedProducts[existingIndex].designationCode !== designationCode) {
+            if (designationCode !== undefined && existing.designationCode !== designationCode) {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], designationCode };
+              hasChanged = true;
             }
-            if (loaiChiDinh !== undefined && updatedProducts[existingIndex].loaiChiDinh !== loaiChiDinh) {
+            if (loaiChiDinh !== undefined && existing.loaiChiDinh !== loaiChiDinh) {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], loaiChiDinh };
+              hasChanged = true;
             }
-            if (ghiChu !== undefined && updatedProducts[existingIndex].ghiChu !== ghiChu) {
+            if (ghiChu !== undefined && existing.ghiChu !== ghiChu) {
               updatedProducts[existingIndex] = { ...updatedProducts[existingIndex], ghiChu };
+              hasChanged = true;
+            }
+            if (hasChanged) {
+              changedProducts.push(updatedProducts[existingIndex]);
             }
           } else if (alreadyInNewIndex !== undefined) {
             if (name !== undefined && newProductsToAdd[alreadyInNewIndex].name === 'Sản phẩm mới' && name !== '') {
@@ -2203,7 +2275,10 @@ export default function App() {
           return prevTransactions;
         });
 
-        api.products.upsertAll(finalProducts).catch(err => console.error('Error syncing products:', err));
+        const productsToUpsert = [...changedProducts, ...newProductsToAdd];
+        if (productsToUpsert.length > 0) {
+          api.products.upsertAll(productsToUpsert).catch(err => console.error('Error syncing products:', err));
+        }
         return finalProducts;
       });
     } else if (activeTab === 'customers') {
@@ -2259,7 +2334,7 @@ export default function App() {
 
         if (newCustomers.length === 0) return prev;
         const updated = [...prev, ...newCustomers];
-        Promise.all(newCustomers.map(c => api.customers.upsert(c))).catch(err => console.error('Error syncing customers:', err));
+        api.customers.upsertAll(newCustomers).catch(err => console.error('Error syncing customers:', err));
         return updated;
       });
     }
@@ -2437,10 +2512,18 @@ export default function App() {
               try {
                 const entriesToDelete = prev.filter(e => outputQRCodes.includes(e.qrcode));
                 if (entriesToDelete.length > 0) {
-                  await Promise.all(entriesToDelete.map(e => api.locationEntries.delete(e.id)));
+                  await api.locationEntries.deleteMany(entriesToDelete.map(e => e.id));
                 }
-                if (finalEntries.length > 0) {
-                  await api.locationEntries.upsertAll(finalEntries);
+                
+                // Only upsert changed items
+                const changedEntries = finalEntries.filter(e => {
+                  const existing = prev.find(p => p.id === e.id);
+                  if (!existing) return true;
+                  return JSON.stringify(existing) !== JSON.stringify(e);
+                });
+
+                if (changedEntries.length > 0) {
+                  await api.locationEntries.upsertAll(changedEntries);
                 }
               } catch (error) {
                 console.error('Error syncing Excel location data:', error);
