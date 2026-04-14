@@ -447,9 +447,29 @@ export default function App() {
   }, [deliveryNoteHeader, isSupabaseConfigured]);
 
   const handleDeleteDeliveryNoteItem = (id: string) => {
-    setDeliveryNoteDeleteId(id);
-    setIsDeliveryNoteDeleteConfirmOpen(true);
+    setDeliveryNotes(prev => {
+      const updatedNotes = prev.filter(item => item.id !== id);
+      api.deliveryNotes.upsertAll(updatedNotes).catch(error => {
+        console.error('Error syncing delivery notes:', error);
+      });
+      return updatedNotes;
+    });
+    showNotification('Đã xóa dòng khỏi phiếu giao hàng', 'success');
   };
+
+  const selectShortageRows = useCallback(() => {
+    const shortageIds = deliveryNotes
+      .filter(item => item.stock && item.stock.toLowerCase().includes('thiếu'))
+      .map(item => item.id);
+    
+    if (shortageIds.length === 0) {
+      showNotification('Không có dòng nào bị thiếu tồn kho', 'success');
+      return;
+    }
+    
+    setSelectedRows(shortageIds);
+    showNotification(`Đã chọn ${shortageIds.length} dòng bị thiếu tồn kho. Bạn có thể bấm Xóa để loại bỏ chúng.`, 'success');
+  }, [deliveryNotes]);
 
   const confirmDeleteDeliveryNoteItem = async () => {
     if (deliveryNoteDeleteId !== null) {
@@ -562,15 +582,15 @@ export default function App() {
       if (field === 'qtyErp') {
         updated = recalculateActualQty(updated);
       }
-      if (field === 'item' || field === 'lotNo') {
+      if (field === 'item' || field === 'lotNo' || field === 'actualQty') {
         updated = updated.map(item => {
           if (item.id === itemAtId) {
-            // Xóa assignedLots khi sửa tay LotNo hoặc Item để tránh sai lệch khi post
+            // Xóa assignedLots khi sửa tay LotNo, Item hoặc Số lượng để tránh sai lệch khi post
             return { 
               ...item, 
               assignedLots: [],
-              actualIssuedQty: item.actualQty,
-              location: getLocationByItemAndLot(item.item, item.lotNo) 
+              actualIssuedQty: field === 'actualQty' ? Number(value) : item.actualQty,
+              location: field === 'actualQty' ? item.location : getLocationByItemAndLot(item.item, item.lotNo) 
             };
           }
           return item;
@@ -3519,6 +3539,14 @@ export default function App() {
                     {deliveryNoteSubTab === 'preview' && (
                       <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                         <button 
+                          onClick={selectShortageRows}
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 border border-red-600 text-red-600 text-[10px] font-bold uppercase tracking-wider hover:bg-red-50 transition-colors"
+                          title="Chọn tất cả các dòng đang bị thiếu tồn kho"
+                        >
+                          <AlertTriangle size={14} />
+                          <span className="hidden md:inline">Chọn dòng thiếu</span>
+                        </button>
+                        <button 
                           onClick={autoAssignLotsFromUI}
                           className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-blue-700 transition-colors"
                           title="Tự động tìm và gán Lot No cho toàn bộ danh sách hiện tại"
@@ -3999,16 +4027,12 @@ export default function App() {
                                 <td className="border border-[#141414] p-2 text-right font-mono">{item.qtyErp.toLocaleString()}</td>
                                 
                                 <td className="border border-[#141414] p-2 text-right font-mono bg-blue-50/30">
-                                  {item.assignedLots && item.assignedLots.length > 0 ? (
-                                    item.actualQty.toLocaleString()
-                                  ) : (
-                                    <input 
-                                      type="number"
-                                      value={item.actualQty || 0}
-                                      onChange={(e) => handleEditDeliveryNoteItem(index, 'actualQty', Number(e.target.value))}
-                                      className="w-full bg-transparent text-right focus:outline-none focus:ring-1 focus:ring-[#141414]"
-                                    />
-                                  )}
+                                  <input 
+                                    type="number"
+                                    value={item.actualQty || 0}
+                                    onChange={(e) => handleEditDeliveryNoteItem(index, 'actualQty', Number(e.target.value))}
+                                    className="w-full bg-transparent text-right focus:outline-none focus:ring-1 focus:ring-[#141414]"
+                                  />
                                 </td>
                                 
                                 {isFirstInItemGroup ? (
