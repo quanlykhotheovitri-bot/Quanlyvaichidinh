@@ -116,7 +116,7 @@ export default function App() {
     sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: '', quantity: 0
   });
   const [newTransaction, setNewTransaction] = useState<Partial<Transaction>>({
-    productId: '', type: 'inbound', quantity: 0, date: format(new Date(), 'dd/MM/yyyy'), partner: '', loaiChiDinh: '', lotNo: '', ghiChu: '', designationCode: ''
+    productId: '', type: 'inbound', quantity: 0, date: format(new Date(), 'dd/MM/yyyy'), updateDate: format(new Date(), 'dd/MM/yyyy'), partner: '', loaiChiDinh: '', lotNo: '', ghiChu: '', designationCode: ''
   });
   const [newCustomer, setNewCustomer] = useState<Partial<Customer>>({
     code: '', name: ''
@@ -1081,7 +1081,7 @@ export default function App() {
     }
     
     setIsTransactionModalOpen(false);
-    setNewTransaction({ productId: '', type: 'inbound', quantity: 0, date: format(new Date(), 'dd/MM/yyyy'), partner: '', loaiChiDinh: '', lotNo: '', ghiChu: '', designationCode: '' });
+    setNewTransaction({ productId: '', type: 'inbound', quantity: 0, date: format(new Date(), 'dd/MM/yyyy'), updateDate: format(new Date(), 'dd/MM/yyyy'), partner: '', loaiChiDinh: '', lotNo: '', ghiChu: '', designationCode: '' });
   };
 
   const handleAddCustomer = async (e: React.FormEvent) => {
@@ -3098,7 +3098,7 @@ export default function App() {
                     <button 
                       onClick={() => {
                         setEditingId(null);
-                        setNewTransaction({ productId: '', type: activeTab as 'inbound' | 'outbound', quantity: 0, date: format(new Date(), 'dd/MM/yyyy'), partner: '', loaiChiDinh: '', lotNo: '', ghiChu: '', designationCode: '' });
+                        setNewTransaction({ productId: '', type: activeTab as 'inbound' | 'outbound', quantity: 0, date: format(new Date(), 'dd/MM/yyyy'), updateDate: format(new Date(), 'dd/MM/yyyy'), partner: '', loaiChiDinh: '', lotNo: '', ghiChu: '', designationCode: '' });
                         setIsTransactionModalOpen(true);
                       }}
                       className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
@@ -3134,6 +3134,7 @@ export default function App() {
                         <th className="border border-[#141414] p-3 text-left">Loại chỉ định</th>
                         <th className="border border-[#141414] p-3 text-left">Ghi chú</th>
                         <th className="border border-[#141414] p-3 text-left">Mã chỉ định</th>
+                        <th className="border border-[#141414] p-3 text-left">Ngày cập nhật</th>
                         <th className="border border-[#141414] p-3 text-center bg-white text-red-600 font-bold w-32">
                           Thao tác
                         </th>
@@ -3163,6 +3164,7 @@ export default function App() {
                               <td className="border border-[#141414] p-3 opacity-60">{t.loaiChiDinh}</td>
                               <td className="border border-[#141414] p-3">{t.ghiChu ?? product?.ghiChu ?? ''}</td>
                               <td className="border border-[#141414] p-3 font-mono">{t.designationCode ?? product?.designationCode ?? ''}</td>
+                              <td className="border border-[#141414] p-3">{t.updateDate || format(new Date(), 'dd/MM/yyyy')}</td>
                               <td className="border border-[#141414] p-3 text-center">
                                 <div className="flex items-center justify-center gap-2">
                                   <button 
@@ -4832,6 +4834,14 @@ export default function App() {
                       className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none font-mono"
                       value={newTransaction.designationCode || ''}
                       onChange={e => setNewTransaction({...newTransaction, designationCode: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold opacity-50">Ngày cập nhật</label>
+                    <input 
+                      className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none font-mono"
+                      value={newTransaction.updateDate || ''}
+                      onChange={e => setNewTransaction({...newTransaction, updateDate: e.target.value})}
                     />
                   </div>
                 </div>

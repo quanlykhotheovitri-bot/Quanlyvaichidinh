@@ -18,12 +18,50 @@ const getCache = <T>(key: string): T | null => {
   }
 };
 
+const autoFreeStorage = () => {
+  try {
+    let total = 0;
+    const items: { key: string; size: number }[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(CACHE_KEY_PREFIX)) {
+        const val = localStorage.getItem(key) || '';
+        const size = (key.length + val.length) * 2;
+        total += size;
+        items.push({ key, size });
+      }
+    }
+
+    // If over 4MB, remove the largest items until under 2MB
+    if (total > 4 * 1024 * 1024) {
+      items.sort((a, b) => b.size - a.size);
+      while (total > 2 * 1024 * 1024 && items.length > 0) {
+        const item = items.shift();
+        if (item) {
+          localStorage.removeItem(item.key);
+          total -= item.size;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error in autoFreeStorage:', e);
+  }
+};
+
 const setCache = <T>(key: string, value: T, ttl: number = 3600000): void => {
   try {
+    autoFreeStorage();
     const expiry = Date.now() + ttl;
     localStorage.setItem(CACHE_KEY_PREFIX + key, JSON.stringify({ value, expiry }));
   } catch (e) {
-    // Silently fail if quota exceeded as per user request to remove warnings
+    // If still failing, clear everything and try once more
+    localStorage.clear();
+    try {
+      const expiry = Date.now() + ttl;
+      localStorage.setItem(CACHE_KEY_PREFIX + key, JSON.stringify({ value, expiry }));
+    } catch (err) {
+      console.error('Final cache failure:', err);
+    }
   }
 };
 
@@ -131,6 +169,8 @@ export const api = {
           if (error) throw error;
           await delay(50);
         }
+        // Successfully stored on Supabase -> Clear local cache to free space
+        localStorage.removeItem(CACHE_KEY_PREFIX + 'products');
       } catch (err) {
         console.error('Error in products upsertAll:', err);
         console.warn('Offline mode: upsertAll saved locally');
@@ -184,7 +224,8 @@ export const api = {
           loaiChiDinh: row.loaichidinh ?? row.loaiChiDinh ?? '',
           lotNo: row.lotno ?? row.lotNo ?? '',
           ghiChu: row.ghichu ?? row.ghiChu ?? '',
-          designationCode: row.designationcode ?? row.designationCode ?? ''
+          designationCode: row.designationcode ?? row.designationCode ?? '',
+          updateDate: row.updatedate ?? row.updateDate ?? ''
         })) as Transaction[];
         setCache('transactions', mappedData, 30 * 24 * 3600000);
         return mappedData;
@@ -203,13 +244,15 @@ export const api = {
         loaichidinh: transaction.loaiChiDinh,
         lotno: transaction.lotNo,
         ghichu: transaction.ghiChu,
-        designationcode: transaction.designationCode
+        designationcode: transaction.designationCode,
+        updatedate: transaction.updateDate
       };
       delete (payload as any).productId;
       delete (payload as any).loaiChiDinh;
       delete (payload as any).lotNo;
       delete (payload as any).ghiChu;
       delete (payload as any).designationCode;
+      delete (payload as any).updateDate;
 
       try {
         const { error } = await supabase.from('transactions').upsert(payload);
@@ -227,13 +270,15 @@ export const api = {
           loaichidinh: transaction.loaiChiDinh,
           lotno: transaction.lotNo,
           ghichu: transaction.ghiChu,
-          designationcode: transaction.designationCode
+          designationcode: transaction.designationCode,
+          updatedate: transaction.updateDate
         };
         delete (t as any).productId;
         delete (t as any).loaiChiDinh;
         delete (t as any).lotNo;
         delete (t as any).ghiChu;
         delete (t as any).designationCode;
+        delete (t as any).updateDate;
         return t;
       });
       
@@ -246,6 +291,8 @@ export const api = {
           if (error) throw error;
           await delay(50);
         }
+        // Successfully stored on Supabase -> Clear local cache to free space
+        localStorage.removeItem(CACHE_KEY_PREFIX + 'transactions');
       } catch (err) {
         console.error('Error in transactions upsertAll:', err);
         console.warn('Offline mode: upsertAll saved locally');
@@ -345,6 +392,8 @@ export const api = {
           if (error) throw error;
           await delay(50);
         }
+        // Successfully stored on Supabase -> Clear local cache to free space
+        localStorage.removeItem(CACHE_KEY_PREFIX + 'customers');
       } catch (err) {
         console.error('Error in customers upsertAll:', err);
         console.warn('Offline mode: upsertAll saved locally');
@@ -440,6 +489,8 @@ export const api = {
           if (error) throw error;
           await delay(50);
         }
+        // Successfully stored on Supabase -> Clear local cache to free space
+        localStorage.removeItem(CACHE_KEY_PREFIX + 'delivery_notes');
       } catch (err) {
         console.error('Error in deliveryNotes upsertAll:', err);
         console.warn('Offline mode: upsertAll delivery notes saved locally');
@@ -538,6 +589,8 @@ export const api = {
           }
           await delay(50);
         }
+        // Successfully stored on Supabase -> Clear local cache to free space
+        localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
       } catch (err) {
         console.error('Error in locationEntries upsertAll:', err);
         console.warn('Offline mode: upsertAll location entries saved locally');

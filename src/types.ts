@@ -25,6 +25,7 @@ export interface Transaction {
   ghiChu?: string;
   designationCode?: string;
   rpro?: string;
+  updateDate?: string;
   created_at?: string;
 }
 
