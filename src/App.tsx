@@ -5252,26 +5252,34 @@ function StatCard({ label, value, alert = false, bgColor = "bg-white/50", textCo
 }
 
 function StorageUsageBar({ showNotification }: { showNotification: (message: string, type?: 'success' | 'error') => void }) {
-  const [usage, setUsage] = useState(0);
+  const [dbUsage, setDbUsage] = useState(0);
+  const [cacheUsage, setCacheUsage] = useState(0);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
-  const limit = 5 * 1024 * 1024; // 5MB limit for localStorage
+  const dbLimit = 500 * 1024 * 1024; // 500MB limit for Supabase Free Tier
+  const cacheLimit = 5 * 1024 * 1024; // 5MB limit for localStorage
 
-  const calculateUsage = useCallback(() => {
-    let total = 0;
+  const calculateUsage = useCallback(async () => {
+    // Calculate Local Cache Usage
+    let cacheTotal = 0;
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key) {
-        total += (key.length + (localStorage.getItem(key) || '').length) * 2;
+        cacheTotal += (key.length + (localStorage.getItem(key) || '').length) * 2;
       }
     }
-    setUsage(total);
+    setCacheUsage(cacheTotal);
+
+    // Calculate Supabase Usage (Estimated from data volume)
+    const dbTotal = await api.getDatabaseUsage();
+    setDbUsage(dbTotal);
   }, []);
 
-  const percentage = Math.min(Math.round((usage / limit) * 100), 100);
+  const dbPercentage = Math.min(Math.round((dbUsage / dbLimit) * 100), 100);
+  const cachePercentage = Math.min(Math.round((cacheUsage / cacheLimit) * 100), 100);
 
   useEffect(() => {
     calculateUsage();
-    const interval = setInterval(calculateUsage, 5000);
+    const interval = setInterval(calculateUsage, 10000); // Update every 10s
     window.addEventListener('storage', calculateUsage);
     
     return () => {
@@ -5288,21 +5296,6 @@ function StorageUsageBar({ showNotification }: { showNotification: (message: str
     }
   };
 
-  const handleBackupAndClear = () => {
-    const backupData = api.getBackupData();
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-    const timestamp = format(new Date(), 'yyyyMMdd_HHmmss');
-    saveAs(blob, `warehouse_cache_backup_${timestamp}.json`);
-    
-    // Clear after a short delay to ensure download started
-    setTimeout(() => {
-      api.clearCache();
-      calculateUsage();
-      setIsBackupModalOpen(false);
-      window.location.reload();
-    }, 1000);
-  };
-
   const handleFullSystemBackup = async () => {
     try {
       showNotification('Đang chuẩn bị dữ liệu sao lưu toàn hệ thống...', 'success');
@@ -5317,47 +5310,68 @@ function StorageUsageBar({ showNotification }: { showNotification: (message: str
     }
   };
 
-  const usageInMB = (usage / (1024 * 1024)).toFixed(2);
+  const dbUsageInMB = (dbUsage / (1024 * 1024)).toFixed(2);
+  const cacheUsageInMB = (cacheUsage / (1024 * 1024)).toFixed(2);
 
   return (
-    <div className="space-y-2">
-      <div className="flex justify-between items-end">
-        <p className="text-[9px] font-bold uppercase tracking-widest opacity-50">Dung lượng lưu trữ</p>
-        <p className="text-[10px] font-bold">{percentage}%</p>
-      </div>
-      <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
-        <motion.div 
-          initial={{ width: 0 }}
-          animate={{ width: `${percentage}%` }}
-          className={cn(
-            "h-full transition-all duration-500",
-            percentage > 90 ? "bg-red-500" : percentage > 70 ? "bg-amber-500" : "bg-green-500"
-          )}
-        />
-      </div>
-      <div className="flex justify-between items-center">
-        <p className="text-[8px] opacity-40 italic">Đã dùng {usageInMB} MB / 5.00 MB</p>
-        <div className="flex gap-2">
-          <button 
-            onClick={handleFullSystemBackup}
-            className="text-[8px] font-bold uppercase tracking-tighter text-green-600 hover:underline flex items-center gap-0.5"
-            title="Sao lưu toàn bộ dữ liệu từ máy chủ về máy tính"
-          >
-            <Download size={8} />
-            Sao lưu hệ thống
-          </button>
-          <button 
-            onClick={handleClearCache}
-            className="text-[8px] font-bold uppercase tracking-tighter text-blue-600 hover:underline"
-          >
-            Xóa đệm
-          </button>
+    <div className="space-y-3">
+      {/* Supabase Storage Usage */}
+      <div className="space-y-1">
+        <div className="flex justify-between items-end">
+          <p className="text-[9px] font-bold uppercase tracking-widest opacity-50">Dung lượng Supabase</p>
+          <p className="text-[10px] font-bold">{dbPercentage}%</p>
         </div>
+        <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+          <motion.div 
+            initial={{ width: 0 }}
+            animate={{ width: `${dbPercentage}%` }}
+            className={cn(
+              "h-full transition-all duration-500",
+              dbPercentage > 90 ? "bg-red-500" : dbPercentage > 70 ? "bg-amber-500" : "bg-blue-500"
+            )}
+          />
+        </div>
+        <p className="text-[8px] opacity-40 italic">Đã dùng {dbUsageInMB} MB / 500 MB</p>
       </div>
 
-      <AnimatePresence>
-        {/* Modal removed as per user request */}
-      </AnimatePresence>
+      {/* Browser Cache Usage (Small indicator) */}
+      <div className="space-y-1 pt-1 border-t border-gray-100">
+        <div className="flex justify-between items-center">
+          <p className="text-[8px] font-bold uppercase tracking-widest opacity-40">Bộ nhớ đệm (Trình duyệt)</p>
+          <p className={cn(
+            "text-[8px] font-bold",
+            cachePercentage > 80 ? "text-red-500" : "opacity-40"
+          )}>{cachePercentage}%</p>
+        </div>
+        <div className="h-1 w-full bg-gray-100 rounded-full overflow-hidden">
+          <div 
+            style={{ width: `${cachePercentage}%` }}
+            className={cn(
+              "h-full transition-all duration-500",
+              cachePercentage > 90 ? "bg-red-500" : cachePercentage > 70 ? "bg-amber-500" : "bg-green-500"
+            )}
+          />
+        </div>
+        <div className="flex justify-between items-center">
+          <p className="text-[7px] opacity-30 italic">{cacheUsageInMB} MB / 5.00 MB</p>
+          <div className="flex gap-2">
+            <button 
+              onClick={handleFullSystemBackup}
+              className="text-[8px] font-bold uppercase tracking-tighter text-green-600 hover:underline flex items-center gap-0.5"
+              title="Sao lưu toàn bộ dữ liệu từ máy chủ về máy tính"
+            >
+              <Download size={8} />
+              Sao lưu
+            </button>
+            <button 
+              onClick={handleClearCache}
+              className="text-[8px] font-bold uppercase tracking-tighter text-blue-600 hover:underline"
+            >
+              Xóa đệm
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

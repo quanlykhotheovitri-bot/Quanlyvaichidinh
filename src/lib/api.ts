@@ -728,6 +728,26 @@ export const api = {
       }
     }
   },
+  async getDatabaseUsage() {
+    try {
+      const tables = ['products', 'transactions', 'customers', 'delivery_notes', 'location_entries', 'saved_delivery_notes'];
+      let totalBytes = 0;
+      
+      // We use the cached data to estimate size to avoid heavy network calls
+      // This is a good proxy since the app caches all main tables
+      for (const table of tables) {
+        const cached = localStorage.getItem(CACHE_KEY_PREFIX + table);
+        if (cached) {
+          totalBytes += cached.length * 2; // UTF-16 characters are 2 bytes
+        }
+      }
+      
+      return totalBytes;
+    } catch (error) {
+      console.error('Error estimating database usage:', error);
+      return 0;
+    }
+  },
   async getFullBackupData() {
     try {
       const [
