@@ -788,8 +788,34 @@ export default function App() {
       { header: 'Loại chỉ định', key: 'loaiChiDinh', width: 20 },
       { header: 'Ghi chú', key: 'ghiChu', width: 25 },
       { header: 'Mã chỉ định', key: 'designationCode', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'Ngày cập nhật', key: 'updateDate', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
     ];
-    await createExcelFile(filteredInventory, columns, 'BaoCaoTonKho', 'BÁO CÁO TỒN KHO');
+    const data = filteredInventory.map(item => {
+      // Find the latest transaction for this batch to get the updateDate
+      const batchTransactions = transactions.filter(t => 
+        t.productId === item.productId && 
+        (t.lotNo || '') === (item.lotNo || '') && 
+        (t.designationCode || '') === (item.designationCode || '')
+      );
+      
+      let latestUpdateDate = '';
+      if (batchTransactions.length > 0) {
+        // Sort by created_at or just take the last one if created_at is missing
+        const sorted = [...batchTransactions].sort((a, b) => {
+          const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return dateB - dateA;
+        });
+        latestUpdateDate = sorted[0].updateDate || sorted[0].date || '';
+      }
+
+      return {
+        ...item,
+        updateDate: latestUpdateDate || format(new Date(), 'dd/MM/yyyy')
+      };
+    });
+
+    await createExcelFile(data, columns, 'BaoCaoTonKho', 'BÁO CÁO TỒN KHO');
   };
 
   const handleExportTransactions = async () => {
@@ -813,6 +839,7 @@ export default function App() {
       { header: 'Loại chỉ định', key: 'loaiChiDinh', width: 20 },
       { header: 'Ghi chú', key: 'ghiChu', width: 25 },
       { header: 'Mã chỉ định', key: 'designationCode', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'Ngày cập nhật', key: 'updateDate', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
     ];
 
     const data = rawData.map(t => {
@@ -820,7 +847,8 @@ export default function App() {
       return {
         ...t,
         sku: product?.sku || 'N/A',
-        name: product?.name || 'N/A'
+        name: product?.name || 'N/A',
+        updateDate: t.updateDate || format(new Date(), 'dd/MM/yyyy')
       };
     });
 
@@ -980,6 +1008,8 @@ export default function App() {
       { header: 'NCC', key: 'partner', width: 20 },
       { header: 'NGÀY', key: 'date', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
       { header: 'Vị trí', key: 'location', width: 15, alignment: { horizontal: 'center' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'Số lượng', key: 'quantity', width: 12, alignment: { horizontal: 'right' as ExcelJS.Alignment['horizontal'] } },
+      { header: 'Ghi chú', key: 'note', width: 20 },
     ];
     await createExcelFile(data, columns, isInv ? 'TonViTri' : 'LichSuViTri', title);
   };
