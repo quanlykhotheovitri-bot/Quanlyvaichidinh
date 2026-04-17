@@ -1779,7 +1779,11 @@ export default function App() {
     const query = searchQuery.toLowerCase();
     return inventory.filter(item => 
       item.name.toLowerCase().includes(query) ||
-      item.sku.toLowerCase().includes(query)
+      item.sku.toLowerCase().includes(query) ||
+      (item.lotNo || '').toLowerCase().includes(query) ||
+      (item.loaiChiDinh || '').toLowerCase().includes(query) ||
+      (item.designationCode || '').toLowerCase().includes(query) ||
+      (item.ghiChu || '').toLowerCase().includes(query)
     );
   }, [inventory, searchQuery]);
 
@@ -1936,7 +1940,8 @@ export default function App() {
         (entry.partner || '').toLowerCase().includes(query) ||
         (entry.location || '').toLowerCase().includes(query) ||
         (entry.qrcode || '').toLowerCase().includes(query) ||
-        (entry.note || '').toLowerCase().includes(query);
+        (entry.note || '').toLowerCase().includes(query) ||
+        (entry.date || '').toLowerCase().includes(query);
       
       if (locationSubTab === 'inventory') return matchesSearch;
       return matchesSearch && entry.scanType === currentScanType;
@@ -1981,7 +1986,8 @@ export default function App() {
       (entry.partner || '').toLowerCase().includes(query) ||
       (entry.location || '').toLowerCase().includes(query) ||
       (entry.qrcode || '').toLowerCase().includes(query) ||
-      (entry.note || '').toLowerCase().includes(query)
+      (entry.note || '').toLowerCase().includes(query) ||
+      (entry.date || '').toLowerCase().includes(query)
     );
   }, [locationInventoryEntries, locationSearch]);
 
@@ -2004,7 +2010,12 @@ export default function App() {
         const product = productMap.get(t.productId);
         return product?.name.toLowerCase().includes(query) ||
                product?.sku.toLowerCase().includes(query) ||
-               t.partner.toLowerCase().includes(query);
+               t.partner.toLowerCase().includes(query) ||
+               (t.lotNo || '').toLowerCase().includes(query) ||
+               (t.date || '').toLowerCase().includes(query) ||
+               (t.loaiChiDinh || '').toLowerCase().includes(query) ||
+               (t.designationCode || '').toLowerCase().includes(query) ||
+               (t.ghiChu || '').toLowerCase().includes(query);
       })
       .map(t => ({ ...t, timestamp: parseDate(t.date).getTime() }));
 
@@ -2019,7 +2030,9 @@ export default function App() {
       item.ovnSaleOrder.toLowerCase().includes(query) ||
       item.ovnProductionOrder.toLowerCase().includes(query) ||
       item.lotNo.toLowerCase().includes(query) ||
-      item.customerCode.toLowerCase().includes(query)
+      item.customerCode.toLowerCase().includes(query) ||
+      (item.loaiChiDinh || '').toLowerCase().includes(query) ||
+      (item.remark || '').toLowerCase().includes(query)
     );
   }, [deliveryNotes, searchQuery]);
 
