@@ -258,8 +258,9 @@ export default function App() {
     });
   }, []);
 
-  const findAssignedFabricLot = useCallback((issueRow: { sku: string, rpro: string, no: string }, inventoryRows: InventoryItem[]) => {
+  const findAssignedFabricLot = useCallback((issueRow: { sku: string, rpro: string, no: string, ovnSaleOrder?: string }, inventoryRows: InventoryItem[]) => {
     const sku = issueRow.sku.toLowerCase().trim();
+    const ovnSaleOrder = (issueRow.ovnSaleOrder || '').toUpperCase();
     
     // Priority 1
     let matches = resolveByPriority1(sku, issueRow.rpro, inventoryRows);
@@ -274,8 +275,26 @@ export default function App() {
       matches = resolveByPriority3(sku, inventoryRows);
     }
     
-    // Filter by stock > 0
-    matches = matches.filter(m => (m.tempStock !== undefined ? m.tempStock : m.currentStock) > 0);
+    // Filter by stock > 0 and business rules
+    matches = matches.filter(m => {
+      const stock = (m.tempStock !== undefined ? m.tempStock : m.currentStock);
+      if (stock <= 0) return false;
+
+      const designation = (m.designationCode || '').toUpperCase();
+      
+      // Rule: "Keep" -> exclude
+      if (designation.includes('KEEP')) return false;
+      
+      // Rule: "RMW" -> exclude
+      if (designation.includes('RMW')) return false;
+      
+      // Rule: "SLT" -> only if OVN Sale Order contains "SLT"
+      if (designation.includes('SLT')) {
+        if (!ovnSaleOrder.includes('SLT')) return false;
+      }
+      
+      return true;
+    });
     
     // Sort FIFO: 1) inboundDate, 2) ID
     matches.sort((a, b) => {
@@ -1688,6 +1707,11 @@ export default function App() {
 
       // Helper to check if an inventory item matches any of the targets
       const isMatch = (invItem: any) => {
+        const designation = (invItem.designationCode || '').toUpperCase();
+        if (designation.includes('KEEP')) return false;
+        if (designation.includes('RMW')) return false;
+        if (designation.includes('SLT') && !(gi.ovnSaleOrder || '').toUpperCase().includes('SLT')) return false;
+
         return (targetRpro && invItem.normalizedCodes.includes(targetRpro)) || 
                (targetSo && invItem.normalizedCodes.includes(targetSo)) || 
                (targetNo && invItem.normalizedCodes.includes(targetNo));
@@ -1766,7 +1790,8 @@ export default function App() {
         { 
           sku: tempDeliveryNoteItem.item, 
           rpro: tempDeliveryNoteItem.ovnProductionOrder || '', 
-          no: tempDeliveryNoteItem.noCode || '' 
+          no: tempDeliveryNoteItem.noCode || '',
+          ovnSaleOrder: tempDeliveryNoteItem.ovnSaleOrder || ''
         },
         inventory
       );
@@ -1819,7 +1844,12 @@ export default function App() {
 
     const updatedNotes = roundedNotes.map(item => {
       const matches = findAssignedFabricLot(
-        { sku: item.item, rpro: item.ovnProductionOrder, no: item.noCode },
+        { 
+          sku: item.item, 
+          rpro: item.ovnProductionOrder, 
+          no: item.noCode,
+          ovnSaleOrder: item.ovnSaleOrder
+        },
         workingInventory
       );
 
