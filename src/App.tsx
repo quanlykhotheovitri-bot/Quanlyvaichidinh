@@ -827,7 +827,7 @@ export default function App() {
           const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
           return dateB - dateA;
         });
-        latestUpdateDate = sorted[0].updateDate || sorted[0].date || '';
+        latestUpdateDate = sorted[0].updateDate || sorted[0].date || 'N/A';
       }
 
       return {
@@ -869,7 +869,7 @@ export default function App() {
         ...t,
         sku: product?.sku || 'N/A',
         name: product?.name || 'N/A',
-        updateDate: t.updateDate || format(new Date(), 'dd/MM/yyyy')
+        updateDate: t.updateDate || 'N/A'
       };
     });
 
@@ -2652,6 +2652,8 @@ export default function App() {
               return null;
             }
 
+            const today = format(new Date(), 'dd/MM/yyyy');
+
             return {
               id: generateId(),
               productId: product.id,
@@ -2662,7 +2664,8 @@ export default function App() {
               loaiChiDinh,
               lotNo,
               ghiChu,
-              designationCode
+              designationCode,
+              updateDate: today
             };
           }).filter(Boolean) as Transaction[];
 
@@ -3551,7 +3554,7 @@ export default function App() {
                               <td className="border border-[#141414] p-3 opacity-60">{t.loaiChiDinh}</td>
                               <td className="border border-[#141414] p-3">{t.ghiChu ?? product?.ghiChu ?? ''}</td>
                               <td className="border border-[#141414] p-3 font-mono">{t.designationCode ?? product?.designationCode ?? ''}</td>
-                              <td className="border border-[#141414] p-3">{t.updateDate || format(new Date(), 'dd/MM/yyyy')}</td>
+                              <td className="border border-[#141414] p-3">{t.updateDate || 'N/A'}</td>
                               <td className="border border-[#141414] p-3 text-center">
                                 <div className="flex items-center justify-center gap-2">
                                   <button 
