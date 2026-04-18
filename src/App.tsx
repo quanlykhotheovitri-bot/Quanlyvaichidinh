@@ -2604,10 +2604,27 @@ export default function App() {
             const product = finalProductsMap.get(sku);
             if (!product) return null;
 
+            const rowLot = normalizedRow['lotno'] !== undefined ? String(normalizedRow['lotno']).trim() : 
+                          (normalizedRow['lotno.'] !== undefined ? String(normalizedRow['lotno.']).trim() : undefined);
+            const lotNo = rowLot ?? product?.lotNo ?? '';
+
             const rawDate = normalizedRow['date'] || normalizedRow['ngày'] || normalizedRow['ngàynhập'] || normalizedRow['ngàyxuất'] || row.date || row.Date || row['Ngày nhập'] || row['Ngày xuất'];
             let formattedDate = format(new Date(), 'dd/MM/yyyy');
             
-            if (rawDate) {
+            // Priority 1: Extract from Lot No for Inbound
+            if (activeTab === 'inbound' && lotNo) {
+              const extracted = extractDateFromLot(lotNo);
+              if (extracted !== 9999999999999) {
+                formattedDate = format(new Date(extracted), 'dd/MM/yyyy');
+              } else if (rawDate) {
+                if (typeof rawDate === 'number') {
+                  const date = XLSX.SSF.parse_date_code(rawDate);
+                  formattedDate = format(new Date(date.y, date.m - 1, date.d), 'dd/MM/yyyy');
+                } else {
+                  formattedDate = String(rawDate).trim();
+                }
+              }
+            } else if (rawDate) {
               if (typeof rawDate === 'number') {
                 const date = XLSX.SSF.parse_date_code(rawDate);
                 formattedDate = format(new Date(date.y, date.m - 1, date.d), 'dd/MM/yyyy');
@@ -2618,8 +2635,6 @@ export default function App() {
 
             const rowLoai = normalizedRow['loaichidinh'] !== undefined ? String(normalizedRow['loaichidinh']).trim() : 
                            (normalizedRow['loạichỉđịnh'] !== undefined ? String(normalizedRow['loạichỉđịnh']).trim() : undefined);
-            const rowLot = normalizedRow['lotno'] !== undefined ? String(normalizedRow['lotno']).trim() : 
-                          (normalizedRow['lotno.'] !== undefined ? String(normalizedRow['lotno.']).trim() : undefined);
             const rowGhiChu = normalizedRow['ghichu'] !== undefined ? String(normalizedRow['ghichu']).trim() : 
                              (normalizedRow['ghichú'] !== undefined ? String(normalizedRow['ghichú']).trim() : undefined);
             const rowDesignation = normalizedRow['designationcode'] !== undefined ? String(normalizedRow['designationcode']).replace(/\s+/g, '') : 
@@ -2628,7 +2643,6 @@ export default function App() {
             const quantity = Number(normalizedRow['quantity'] || normalizedRow['sốlượng'] || normalizedRow['sốlượngnhập'] || normalizedRow['sốlượngxuất'] || row.quantity || row.Quantity || row['Số lượng nhập'] || row['Số lượng xuất'] || 0);
             const partner = normalizedRow['partner'] || normalizedRow['đốitác'] || normalizedRow['kháchhàng'] || normalizedRow['nhàcungcấp'] || row.partner || row.Partner || 'N/A';
             const loaiChiDinh = rowLoai ?? '';
-            const lotNo = rowLot ?? product?.lotNo ?? '';
             const ghiChu = rowGhiChu ?? product?.ghiChu ?? '';
             const designationCode = rowDesignation ?? product?.designationCode ?? '';
 
@@ -4965,7 +4979,17 @@ export default function App() {
                     <input 
                       className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none font-mono"
                       value={newTransaction.lotNo || ''}
-                      onChange={e => setNewTransaction({...newTransaction, lotNo: e.target.value})}
+                      onChange={e => {
+                        const lot = e.target.value;
+                        const updates: any = { lotNo: lot };
+                        if (activeTab === 'inbound') {
+                          const extracted = extractDateFromLot(lot);
+                          if (extracted !== 9999999999999) {
+                            updates.date = format(new Date(extracted), 'dd/MM/yyyy');
+                          }
+                        }
+                        setNewTransaction({...newTransaction, ...updates});
+                      }}
                     />
                   </div>
                   <div className="space-y-1">
