@@ -282,15 +282,16 @@ export default function App() {
       if (stock <= 0) return false;
 
       const designation = (m.designationCode || '').toUpperCase();
+      const note = (m.ghiChu || '').toUpperCase();
       
       // Rule: "Keep" -> exclude
-      if (designation.includes('KEEP')) return false;
+      if (designation.includes('KEEP') || note.includes('KEEP')) return false;
       
       // Rule: "RMW" -> exclude
-      if (designation.includes('RMW')) return false;
+      if (designation.includes('RMW') || note.includes('RMW')) return false;
       
       // Rule: "SLT" -> only if OVN Sale Order contains "SLT"
-      if (designation.includes('SLT')) {
+      if (designation.includes('SLT') || note.includes('SLT')) {
         if (!ovnSaleOrder.includes('SLT')) return false;
       }
       
@@ -1995,9 +1996,11 @@ export default function App() {
       // Helper to check if an inventory item matches any of the targets
       const isMatch = (invItem: any) => {
         const designation = (invItem.designationCode || '').toUpperCase();
-        if (designation.includes('KEEP')) return false;
-        if (designation.includes('RMW')) return false;
-        if (designation.includes('SLT') && !(gi.ovnSaleOrder || '').toUpperCase().includes('SLT')) return false;
+        const note = (invItem.ghiChu || '').toUpperCase();
+        
+        if (designation.includes('KEEP') || note.includes('KEEP')) return false;
+        if (designation.includes('RMW') || note.includes('RMW')) return false;
+        if ((designation.includes('SLT') || note.includes('SLT')) && !(gi.ovnSaleOrder || '').toUpperCase().includes('SLT')) return false;
 
         return (targetRpro && invItem.normalizedCodes.includes(targetRpro)) || 
                (targetSo && invItem.normalizedCodes.includes(targetSo)) || 
