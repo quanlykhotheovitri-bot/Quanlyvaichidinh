@@ -225,7 +225,8 @@ export const api = {
           lotNo: row.lotno ?? row.lotNo ?? '',
           ghiChu: row.ghichu ?? row.ghiChu ?? '',
           designationCode: row.designationcode ?? row.designationCode ?? '',
-          updateDate: row.updatedate ?? row.updateDate ?? ''
+          updateDate: row.updatedate ?? row.updateDate ?? '',
+          isDeleted: row.isdeleted ?? row.isDeleted ?? false
         })) as Transaction[];
         setCache('transactions', mappedData, 30 * 24 * 3600000);
         return mappedData;
@@ -245,7 +246,8 @@ export const api = {
         lotno: transaction.lotNo,
         ghichu: transaction.ghiChu,
         designationcode: transaction.designationCode,
-        updatedate: transaction.updateDate
+        updatedate: transaction.updateDate,
+        isdeleted: transaction.isDeleted || false
       };
       delete (payload as any).productId;
       delete (payload as any).loaiChiDinh;
@@ -253,6 +255,7 @@ export const api = {
       delete (payload as any).ghiChu;
       delete (payload as any).designationCode;
       delete (payload as any).updateDate;
+      delete (payload as any).isDeleted;
 
       try {
         const { error } = await supabase.from('transactions').upsert(payload);
@@ -271,7 +274,8 @@ export const api = {
           lotno: transaction.lotNo,
           ghichu: transaction.ghiChu,
           designationcode: transaction.designationCode,
-          updatedate: transaction.updateDate
+          updatedate: transaction.updateDate,
+          isdeleted: transaction.isDeleted || false
         };
         delete (t as any).productId;
         delete (t as any).loaiChiDinh;
@@ -279,6 +283,7 @@ export const api = {
         delete (t as any).ghiChu;
         delete (t as any).designationCode;
         delete (t as any).updateDate;
+        delete (t as any).isDeleted;
         return t;
       });
       

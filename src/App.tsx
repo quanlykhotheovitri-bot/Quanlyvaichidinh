@@ -1680,7 +1680,7 @@ export default function App() {
       setProducts(prev => prev.filter(p => p.id !== id));
       setTransactions(prev => prev.filter(t => t.productId !== id));
     } else if (type === 'transaction') {
-      setTransactions(prev => prev.filter(t => t.id !== id));
+      setTransactions(prev => prev.map(t => t.id === id ? { ...t, isDeleted: true } : t));
     } else if (type === 'customer') {
       setCustomers(prev => prev.filter(c => c.id !== id));
     } else if (type === 'location') {
@@ -1701,7 +1701,10 @@ export default function App() {
         await api.transactions.deleteByProductId(id);
         await api.products.delete(id);
       } else if (type === 'transaction') {
-        await api.transactions.delete(id);
+        const tx = transactions.find(t => t.id === id);
+        if (tx) {
+          await api.transactions.upsert({ ...tx, isDeleted: true });
+        }
       } else if (type === 'customer') {
         await api.customers.delete(id);
       } else if (type === 'location') {
@@ -1725,8 +1728,11 @@ export default function App() {
             .map(t => t.id);
           
           if (transactionIds.length > 0) {
-            setTransactions(prev => prev.filter(t => !transactionIds.includes(t.id)));
-            await api.transactions.deleteMany(transactionIds);
+            setTransactions(prev => prev.map(t => transactionIds.includes(t.id) ? { ...t, isDeleted: true } : t));
+            const txsToUpsert = transactions
+              .filter(t => transactionIds.includes(t.id))
+              .map(t => ({ ...t, isDeleted: true }));
+            await api.transactions.upsertAll(txsToUpsert);
           }
         }
       }
@@ -1778,12 +1784,15 @@ export default function App() {
         loadData();
       }
     } else if (currentTab === 'inbound' || currentTab === 'outbound') {
-      setTransactions(prev => prev.filter(t => !idsToDelete.includes(t.id)));
+      setTransactions(prev => prev.map(t => idsToDelete.includes(t.id) ? { ...t, isDeleted: true } : t));
       try {
-        await api.transactions.deleteMany(idsToDelete);
-        showNotification('Đã xóa các giao dịch thành công.');
+        const txsToUpsert = transactions
+          .filter(t => idsToDelete.includes(t.id))
+          .map(t => ({ ...t, isDeleted: true }));
+        await api.transactions.upsertAll(txsToUpsert);
+        showNotification('Đã xóa dữ liệu hiển thị (tồn kho không đổi).');
       } catch (error) {
-        showNotification('Lỗi khi xóa giao dịch.', 'error');
+        showNotification('Lỗi khi xóa dữ liệu.', 'error');
         loadData();
       }
     } else if (currentTab === 'customers') {
@@ -2296,6 +2305,7 @@ export default function App() {
     const query = searchQuery.toLowerCase();
     
     const transactionWithTimestamps = transactions
+      .filter(t => !t.isDeleted)
       .filter(t => {
         const product = productMap.get(t.productId);
         return product?.name.toLowerCase().includes(query) ||

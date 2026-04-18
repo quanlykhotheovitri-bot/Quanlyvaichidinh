@@ -27,6 +27,7 @@ export interface Transaction {
   rpro?: string;
   updateDate?: string;
   created_at?: string;
+  isDeleted?: boolean;
 }
 
 export interface Customer {
