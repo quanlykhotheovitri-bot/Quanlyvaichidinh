@@ -93,7 +93,7 @@ export default function App() {
   const [newLocationEntry, setNewLocationEntry] = useState<Partial<LocationEntry>>({
     qrcode: '', sku: '', partner: '', date: '', location: '', note: '', quantity: 1
   });
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk' | 'wipe_all_data', type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote' | 'all', qrcode?: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string | 'bulk' | 'wipe_all_data', type: 'product' | 'transaction' | 'customer' | 'location' | 'inventory_batch' | 'savedDeliveryNote' | 'all', qrcode?: string } | null>(null);
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -1013,7 +1013,7 @@ export default function App() {
   };
 
   const handleExportDeliveryNote = async (isDifferenceOnly: boolean = false) => {
-    let dataToExport = [...deliveryNotes];
+    let dataToExport = [...filteredDeliveryNotes];
     
     if (isDifferenceOnly) {
       dataToExport = dataToExport.filter(item => {
@@ -1712,6 +1712,22 @@ export default function App() {
         }
       } else if (type === 'savedDeliveryNote') {
         await api.savedDeliveryNotes.delete(id);
+      } else if (type === 'inventory_batch') {
+        const batch = inventory.find(i => i.id === id);
+        if (batch) {
+          const transactionIds = transactions
+            .filter(t => 
+              t.productId === batch.productId && 
+              (t.lotNo || '') === (batch.lotNo || '') && 
+              (t.designationCode || '') === (batch.designationCode || '')
+            )
+            .map(t => t.id);
+          
+          if (transactionIds.length > 0) {
+            setTransactions(prev => prev.filter(t => !transactionIds.includes(t.id)));
+            await api.transactions.deleteMany(transactionIds);
+          }
+        }
       }
       showNotification('Đã xóa dữ liệu thành công.');
     } catch (error: any) {
@@ -1728,28 +1744,36 @@ export default function App() {
 
     if (currentTab === 'inventory') {
       const inventoryMap = new Map<string, InventoryItem>(inventory.map(i => [i.id, i]));
-      const productIds = idsToDelete.map(batchKey => {
-        const item = inventoryMap.get(batchKey);
-        return item?.productId;
-      }).filter(Boolean) as string[];
-      const uniqueProductIds = [...new Set(productIds)];
+      const batchesToDelete = idsToDelete.map(batchKey => inventoryMap.get(batchKey)).filter(Boolean) as InventoryItem[];
       
-      if (uniqueProductIds.length === 0) {
+      if (batchesToDelete.length === 0) {
         setSelectedRows([]);
         setIsDeleteConfirmOpen(false);
         return;
       }
 
-      setProducts(prev => prev.filter(p => !uniqueProductIds.includes(p.id)));
-      setTransactions(prev => prev.filter(t => !uniqueProductIds.includes(t.productId)));
+      const transactionIdsToDelete: string[] = [];
+      transactions.forEach(t => {
+        const matches = batchesToDelete.some(b => 
+          t.productId === b.productId && 
+          (t.lotNo || '') === (b.lotNo || '') && 
+          (t.designationCode || '') === (b.designationCode || '')
+        );
+        if (matches) {
+          transactionIdsToDelete.push(t.id);
+        }
+      });
+
+      setTransactions(prev => prev.filter(t => !transactionIdsToDelete.includes(t.id)));
       
       try {
-        await api.transactions.deleteByProductIds(uniqueProductIds);
-        await api.products.deleteMany(uniqueProductIds);
-        showNotification(`Đã xóa ${uniqueProductIds.length} mặt hàng thành công.`);
+        if (transactionIdsToDelete.length > 0) {
+          await api.transactions.deleteMany(transactionIdsToDelete);
+        }
+        showNotification(`Đã xóa ${batchesToDelete.length} lô hàng thành công.`);
       } catch (error: any) {
         console.error('Error in bulk delete inventory:', error);
-        showNotification('Lỗi khi xóa hàng loạt tồn kho: ' + (error.message || 'Vui lòng kiểm tra kết nối mạng.'), 'error');
+        showNotification('Lỗi khi xóa hàng loạt: ' + (error.message || 'Vui lòng kiểm tra kết nối mạng.'), 'error');
         loadData();
       }
     } else if (currentTab === 'inbound' || currentTab === 'outbound') {
@@ -3649,7 +3673,7 @@ export default function App() {
                                 </button>
                                 <button 
                                   onClick={() => {
-                                    setDeleteTarget({ id: item.productId, type: 'product' });
+                                    setDeleteTarget({ id: item.id, type: 'inventory_batch' });
                                     setIsDeleteConfirmOpen(true);
                                   }}
                                   className="p-1 hover:bg-gray-200 rounded transition-colors"
