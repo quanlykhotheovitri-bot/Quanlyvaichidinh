@@ -1121,16 +1121,64 @@ export default function App() {
     let totalDiff = 0;
     const processedGroups = new Set();
 
-    dataToExport.forEach((item) => {
+    dataToExport.forEach((item, index) => {
       totalQtyErp += item.qtyErp;
       totalActualQty += (item.actualQty || 0);
       const diffValue = (item.actualQty || 0) - item.qtyErp;
       totalDiff += diffValue;
       
-      const groupKey = `${item.item}|${item.loaiChiDinh || 'NORMAL'}`;
-      if (!processedGroups.has(groupKey)) {
-        totalActualIssuedQty += (item.actualIssuedQty || 0);
-        processedGroups.add(groupKey);
+      // Calculate grouping for correctly aggregating values in Excel
+      const isFirstInItemGroup = index === 0 || 
+        dataToExport[index - 1].item !== item.item || 
+        dataToExport[index - 1].loaiChiDinh !== item.loaiChiDinh;
+      
+      let itemGroupSize = 0;
+      let groupLotsStr = '';
+      let groupTotalIssuedQty = 0;
+      let groupLocationStr = '';
+      let groupAnalysis = '';
+
+      if (isFirstInItemGroup) {
+        for (let i = index; i < dataToExport.length; i++) {
+          if (dataToExport[i].item === item.item && dataToExport[i].loaiChiDinh === item.loaiChiDinh) {
+            itemGroupSize++;
+          } else {
+            break;
+          }
+        }
+        
+        const currentGroupItems = dataToExport.slice(index, index + itemGroupSize);
+        const allLots: {lotNo: string, qty: number}[] = [];
+        const allLocations = new Set<string>();
+
+        currentGroupItems.forEach(gi => {
+          if (gi.assignedLots) {
+            gi.assignedLots.forEach(lot => {
+              const existing = allLots.find(l => l.lotNo === lot.lotNo);
+              if (existing) {
+                existing.qty += lot.qty;
+              } else {
+                allLots.push({ lotNo: lot.lotNo, qty: lot.qty });
+              }
+              const loc = getLocationByItemAndLot(gi.item, lot.lotNo);
+              if (loc && loc !== 'Chưa có vị trí') allLocations.add(loc);
+            });
+          }
+        });
+        
+        if (allLots.length > 0) {
+          groupLotsStr = allLots.map(l => `${l.lotNo} (${l.qty.toLocaleString()})`).join('\n');
+          groupTotalIssuedQty = allLots.reduce((sum, l) => sum + l.qty, 0);
+        } else {
+          groupLotsStr = item.lotNo || '';
+          groupTotalIssuedQty = currentGroupItems.reduce((sum, gi) => sum + (gi.actualQty || 0), 0);
+          const loc = getLocationByItemAndLot(item.item, item.lotNo || '');
+          if (loc && loc !== 'Chưa có vị trí') allLocations.add(loc);
+        }
+        groupLocationStr = Array.from(allLocations).join('\n') || 'Chưa có vị trí';
+        groupAnalysis = analyzeGroupStock(item.item, currentGroupItems).detail;
+        
+        totalActualIssuedQty += groupTotalIssuedQty;
       }
 
       const baseValues = [
@@ -1147,16 +1195,16 @@ export default function App() {
       const diffValueOutput = isDifferenceOnly ? [diffValue] : [];
 
       const extraValues = [
-        item.lotNo,
-        item.actualIssuedQty,
+        isFirstInItemGroup ? groupLotsStr : '',
+        isFirstInItemGroup ? groupTotalIssuedQty : '',
         item.remark,
-        item.loaiChiDinh || '',
-        item.brand,
-        item.customerCode,
-        item.finalDestination,
+        isFirstInItemGroup ? (item.loaiChiDinh || 'NORMAL') : '',
+        isFirstInItemGroup ? item.brand : '',
+        isFirstInItemGroup ? item.customerCode : '',
+        isFirstInItemGroup ? item.finalDestination : '',
         item.noCode,
-        item.location,
-        item.stock
+        isFirstInItemGroup ? groupLocationStr : '',
+        isFirstInItemGroup ? groupAnalysis : ''
       ];
 
       const row = worksheet.addRow([...baseValues, ...diffValueOutput, ...extraValues]);
@@ -1196,7 +1244,9 @@ export default function App() {
       
       if (groupKey !== currentGroupKey) {
         if (startMergeRow !== 0 && (rowIdx - 1) > startMergeRow) {
-          const mergeCols = isDifferenceOnly ? [4, 5, 6, 10, 11, 12, 13, 14, 15] : [4, 5, 6, 9, 10, 11, 12, 13, 14, 15];
+          const mergeCols = isDifferenceOnly ? 
+            [4, 5, 6, 10, 11, 13, 14, 15, 16, 19] : 
+            [4, 5, 6, 9, 10, 12, 13, 14, 15, 18];
           mergeCols.forEach(col => {
             worksheet.mergeCells(startMergeRow, col, rowIdx - 1, col);
           });
@@ -1207,7 +1257,9 @@ export default function App() {
       
       if (index === dataToExport.length - 1) {
         if (rowIdx > startMergeRow) {
-          const mergeCols = isDifferenceOnly ? [4, 5, 6, 10, 11, 12, 13, 14, 15] : [4, 5, 6, 9, 10, 11, 12, 13, 14, 15];
+          const mergeCols = isDifferenceOnly ? 
+            [4, 5, 6, 10, 11, 13, 14, 15, 16, 19] : 
+            [4, 5, 6, 9, 10, 12, 13, 14, 15, 18];
           mergeCols.forEach(col => {
             worksheet.mergeCells(startMergeRow, col, rowIdx, col);
           });
@@ -4186,22 +4238,28 @@ export default function App() {
                                     </div>
                                   )}
                                 </td>
-                                <td className="border border-[#141414] p-2 bg-blue-50/30">
-                                  {item.assignedLots && item.assignedLots.length > 0 ? (
-                                    <div className="flex flex-col gap-1">
-                                      {item.assignedLots.map((lot, idx) => (
-                                        <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
-                                          {lot.loaiChiDinh}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    item.loaiChiDinh
-                                  )}
-                                </td>
-                                <td className="border border-[#141414] p-2">{item.brand}</td>
-                                <td className="border border-[#141414] p-2">{item.customerCode}</td>
-                                <td className="border border-[#141414] p-2">{item.finalDestination}</td>
+                                {isFirstInItemGroup ? (
+                                  <td rowSpan={itemGroupSize} className="border border-[#141414] p-2 bg-blue-50/30 align-middle">
+                                    {groupLots.length > 0 ? (
+                                      <div className="flex flex-col gap-1">
+                                        {groupLots.map((lot, idx) => (
+                                          <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
+                                            {lot.loaiChiDinh}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      item.loaiChiDinh
+                                    )}
+                                  </td>
+                                ) : null}
+                                {isFirstInItemGroup ? (
+                                  <>
+                                    <td rowSpan={itemGroupSize} className="border border-[#141414] p-2 align-middle">{item.brand}</td>
+                                    <td rowSpan={itemGroupSize} className="border border-[#141414] p-2 align-middle">{item.customerCode}</td>
+                                    <td rowSpan={itemGroupSize} className="border border-[#141414] p-2 align-middle">{item.finalDestination}</td>
+                                  </>
+                                ) : null}
                                 <td className="border border-[#141414] p-2">{item.noCode}</td>
                                 <td className="border border-[#141414] p-2">
                                   {item.assignedLots && item.assignedLots.length > 0 ? (
