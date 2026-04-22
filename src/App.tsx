@@ -1781,20 +1781,23 @@ export default function App() {
       } else if (type === 'inventory_batch') {
         const batch = inventory.find(i => i.id === id);
         if (batch) {
-          const transactionIds = transactions
-            .filter(t => 
-              t.productId === batch.productId && 
-              (t.lotNo || '') === (batch.lotNo || '') && 
-              (t.designationCode || '') === (batch.designationCode || '')
-            )
-            .map(t => t.id);
-          
-          if (transactionIds.length > 0) {
-            setTransactions(prev => prev.map(t => transactionIds.includes(t.id) ? { ...t, isDeleted: true } : t));
-            const txsToUpsert = transactions
-              .filter(t => transactionIds.includes(t.id))
-              .map(t => ({ ...t, isDeleted: true }));
-            await api.transactions.upsertAll(txsToUpsert);
+          if (id.endsWith('-empty')) {
+            setProducts(prev => prev.filter(p => p.id !== batch.productId));
+            await api.transactions.deleteByProductId(batch.productId);
+            await api.products.delete(batch.productId);
+          } else {
+            const transactionIds = transactions
+              .filter(t => 
+                t.productId === batch.productId && 
+                (t.lotNo || '') === (batch.lotNo || '') && 
+                (t.designationCode || '') === (batch.designationCode || '')
+              )
+              .map(t => t.id);
+            
+            if (transactionIds.length > 0) {
+              setTransactions(prev => prev.filter(t => !transactionIds.includes(t.id)));
+              await api.transactions.deleteMany(transactionIds);
+            }
           }
         }
       }
@@ -1822,22 +1825,40 @@ export default function App() {
       }
 
       const transactionIdsToDelete: string[] = [];
-      transactions.forEach(t => {
-        const matches = batchesToDelete.some(b => 
-          t.productId === b.productId && 
-          (t.lotNo || '') === (b.lotNo || '') && 
-          (t.designationCode || '') === (b.designationCode || '')
-        );
-        if (matches) {
-          transactionIdsToDelete.push(t.id);
+      const productIdsToDelete = new Set<string>();
+
+      batchesToDelete.forEach(b => {
+        if (b.id.endsWith('-empty')) {
+          productIdsToDelete.add(b.productId);
+        } else {
+          const matchingTransactions = transactions.filter(t => 
+            t.productId === b.productId && 
+            (t.lotNo || '') === (b.lotNo || '') && 
+            (t.designationCode || '') === (b.designationCode || '')
+          );
+          matchingTransactions.forEach(t => transactionIdsToDelete.push(t.id));
         }
       });
 
-      setTransactions(prev => prev.filter(t => !transactionIdsToDelete.includes(t.id)));
+      setTransactions(prev => {
+        let filtered = prev.filter(t => !transactionIdsToDelete.includes(t.id));
+        if (productIdsToDelete.size > 0) {
+          filtered = filtered.filter(t => !productIdsToDelete.has(t.productId));
+        }
+        return filtered;
+      });
+      if (productIdsToDelete.size > 0) {
+        setProducts(prev => prev.filter(p => !productIdsToDelete.has(p.id)));
+      }
       
       try {
         if (transactionIdsToDelete.length > 0) {
           await api.transactions.deleteMany(transactionIdsToDelete);
+        }
+        if (productIdsToDelete.size > 0) {
+          const productIdsArray = Array.from(productIdsToDelete);
+          await api.transactions.deleteByProductIds(productIdsArray);
+          await api.products.deleteMany(productIdsArray);
         }
         showNotification(`Đã xóa ${batchesToDelete.length} lô hàng thành công.`);
       } catch (error: any) {
