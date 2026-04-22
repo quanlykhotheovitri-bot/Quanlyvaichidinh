@@ -2642,10 +2642,6 @@ export default function App() {
         let currentSkuForTransaction = '';
 
         setTransactions(prevTransactions => {
-          const existingTransactionKeys = new Set(prevTransactions.map(t => 
-            `${t.productId}|${t.type}|${t.quantity}|${t.date}|${t.partner}|${t.lotNo}|${t.designationCode}`
-          ));
-
           const newTransactions: Transaction[] = data.map((row) => {
             const normalizedRow: any = {};
             Object.keys(row).forEach(key => {
@@ -2722,12 +2718,6 @@ export default function App() {
             const ghiChu = rowGhiChu ?? product?.ghiChu ?? '';
             const designationCode = rowDesignation ?? product?.designationCode ?? '';
 
-            const transactionKey = `${product.id}|${activeTab}|${quantity}|${formattedDate}|${partner}|${lotNo}|${designationCode}`;
-            
-            if (existingTransactionKeys.has(transactionKey)) {
-              return null;
-            }
-
             const today = format(new Date(), 'dd/MM/yyyy');
 
             return {
@@ -2746,16 +2736,12 @@ export default function App() {
           }).filter(Boolean) as Transaction[];
 
           if (newTransactions.length > 0) {
-            api.transactions.upsertAll(newTransactions).catch(err => console.error('Error syncing transactions:', err));
             return [...prevTransactions, ...newTransactions];
           }
           return prevTransactions;
         });
 
-        const productsToUpsert = [...changedProducts, ...newProductsToAdd];
-        if (productsToUpsert.length > 0) {
-          api.products.upsertAll(productsToUpsert).catch(err => console.error('Error syncing products:', err));
-        }
+        // The central sync effect will handle persistence for products and transactions
         return finalProducts;
       });
     } else if (activeTab === 'customers') {

@@ -54,13 +54,26 @@ const setCache = <T>(key: string, value: T, ttl: number = 3600000): void => {
     const expiry = Date.now() + ttl;
     localStorage.setItem(CACHE_KEY_PREFIX + key, JSON.stringify({ value, expiry }));
   } catch (e) {
-    // If still failing, clear everything and try once more
-    localStorage.clear();
+    console.warn('Storage limit reached, attempting to free oldest cache items');
+    // If setting fails, remove the oldest item and try again
     try {
-      const expiry = Date.now() + ttl;
-      localStorage.setItem(CACHE_KEY_PREFIX + key, JSON.stringify({ value, expiry }));
+      const items: { key: string; expiry: number }[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(CACHE_KEY_PREFIX)) {
+          const val = localStorage.getItem(k) || '';
+          const { expiry } = JSON.parse(val);
+          items.push({ key: k, expiry });
+        }
+      }
+      items.sort((a, b) => a.expiry - b.expiry);
+      if (items.length > 0) {
+        localStorage.removeItem(items[0].key);
+        const expiry = Date.now() + ttl;
+        localStorage.setItem(CACHE_KEY_PREFIX + key, JSON.stringify({ value, expiry }));
+      }
     } catch (err) {
-      console.error('Final cache failure:', err);
+      console.error('Final cache failure - local storage possibly full:', err);
     }
   }
 };
@@ -169,11 +182,9 @@ export const api = {
           if (error) throw error;
           await delay(50);
         }
-        // Successfully stored on Supabase -> Clear local cache to free space
-        localStorage.removeItem(CACHE_KEY_PREFIX + 'products');
       } catch (err) {
         console.error('Error in products upsertAll:', err);
-        console.warn('Offline mode: upsertAll saved locally');
+        console.warn('Sync failed: data remains in local cache');
       }
     },
     async delete(id: string): Promise<void> {
@@ -296,11 +307,9 @@ export const api = {
           if (error) throw error;
           await delay(50);
         }
-        // Successfully stored on Supabase -> Clear local cache to free space
-        localStorage.removeItem(CACHE_KEY_PREFIX + 'transactions');
       } catch (err) {
         console.error('Error in transactions upsertAll:', err);
-        console.warn('Offline mode: upsertAll saved locally');
+        console.warn('Sync failed: data remains in local cache');
       }
     },
     async delete(id: string): Promise<void> {
@@ -397,11 +406,9 @@ export const api = {
           if (error) throw error;
           await delay(50);
         }
-        // Successfully stored on Supabase -> Clear local cache to free space
-        localStorage.removeItem(CACHE_KEY_PREFIX + 'customers');
       } catch (err) {
         console.error('Error in customers upsertAll:', err);
-        console.warn('Offline mode: upsertAll saved locally');
+        console.warn('Sync failed: data remains in local cache');
       }
     },
     async delete(id: string): Promise<void> {
@@ -502,11 +509,9 @@ export const api = {
           if (error) throw error;
           await delay(50);
         }
-        // Successfully stored on Supabase -> Clear local cache to free space
-        localStorage.removeItem(CACHE_KEY_PREFIX + 'delivery_notes');
       } catch (err) {
         console.error('Error in deliveryNotes upsertAll:', err);
-        console.warn('Offline mode: upsertAll delivery notes saved locally');
+        console.warn('Sync failed: data remains in local cache');
       }
     },
     async delete(id: string): Promise<void> {
@@ -602,11 +607,9 @@ export const api = {
           }
           await delay(50);
         }
-        // Successfully stored on Supabase -> Clear local cache to free space
-        localStorage.removeItem(CACHE_KEY_PREFIX + 'location_entries');
       } catch (err) {
         console.error('Error in locationEntries upsertAll:', err);
-        console.warn('Offline mode: upsertAll location entries saved locally');
+        console.warn('Sync failed: data remains in local cache');
       }
     },
     async delete(id: string): Promise<void> {
