@@ -428,6 +428,14 @@ export const api = {
         }
         await delay(50);
       }
+    },
+    async deleteAll(): Promise<void> {
+      setCache('customers', [], 30 * 24 * 3600000);
+      const { error } = await supabase.from('customers').delete().neq('id', '');
+      if (error) {
+        console.error('Database error during customers bulk deletion:', error);
+        throw error;
+      }
     }
   },
   deliveryNotes: {
@@ -731,6 +739,14 @@ export const api = {
           throw error;
         }
         await delay(50);
+      }
+    },
+    async deleteAll(): Promise<void> {
+      setCache('saved_delivery_notes', [], 30 * 24 * 3600000);
+      const { error } = await supabase.from('saved_delivery_notes').delete().neq('id', '');
+      if (error) {
+        console.error('Database error during saved delivery notes bulk deletion:', error);
+        throw error;
       }
     }
   },

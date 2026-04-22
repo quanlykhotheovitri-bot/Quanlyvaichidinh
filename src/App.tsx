@@ -471,7 +471,11 @@ export default function App() {
     setDeliveryNotes(prev => {
       const filtered = prev.filter(item => item.id !== id);
       const updatedNotes = recalculateActualQty(filtered);
-      api.deliveryNotes.upsertAll(updatedNotes).catch(error => {
+      api.deliveryNotes.delete(id).then(() => {
+        if (updatedNotes.length > 0) {
+          api.deliveryNotes.upsertAll(updatedNotes);
+        }
+      }).catch(error => {
         console.error('Error syncing delivery notes:', error);
       });
       return updatedNotes;
@@ -481,9 +485,15 @@ export default function App() {
 
   const confirmDeleteDeliveryNoteItem = async () => {
     if (deliveryNoteDeleteId !== null) {
+      const idToDelete = deliveryNoteDeleteId;
       setDeliveryNotes(prev => {
-        const updatedNotes = prev.filter(item => item.id !== deliveryNoteDeleteId);
-        api.deliveryNotes.upsertAll(updatedNotes).catch(error => {
+        const filtered = prev.filter(item => item.id !== idToDelete);
+        const updatedNotes = recalculateActualQty(filtered);
+        api.deliveryNotes.delete(idToDelete).then(() => {
+          if (updatedNotes.length > 0) {
+            api.deliveryNotes.upsertAll(updatedNotes);
+          }
+        }).catch(error => {
           console.error('Error syncing delivery notes:', error);
           showNotification('Không thể đồng bộ phiếu giao hàng sau khi xóa.', 'error');
         });
@@ -1727,7 +1737,7 @@ export default function App() {
   };
 
 
-  const handleDelete = async (id: string, type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote') => {
+  const handleDelete = async (id: string, type: 'product' | 'transaction' | 'customer' | 'location' | 'savedDeliveryNote' | 'inventory_batch') => {
     if (type === 'product') {
       setProducts(prev => prev.filter(p => p.id !== id));
       setTransactions(prev => prev.filter(t => t.productId !== id));
@@ -1888,7 +1898,12 @@ export default function App() {
         setDeliveryNotes(prev => {
           const filtered = prev.filter(item => !idsToDelete.includes(item.id));
           const updated = recalculateActualQty(filtered);
-          api.deliveryNotes.upsertAll(updated).catch(err => console.error('Error syncing delivery notes:', err));
+          // Explicitly delete missing items from Supabase then update the rest
+          api.deliveryNotes.deleteMany(idsToDelete).then(() => {
+            if (updated.length > 0) {
+              api.deliveryNotes.upsertAll(updated);
+            }
+          }).catch(err => console.error('Error syncing delivery notes:', err));
           return updated;
         });
         showNotification('Đã xóa các mục phiếu giao nhận thành công.');
@@ -1911,18 +1926,26 @@ export default function App() {
   const handleWipeAllData = async () => {
     try {
       if (isSupabaseConfigured) {
-        await api.products.deleteAll();
-        await api.transactions.deleteAll();
-        await api.locationEntries.deleteAll();
+        await Promise.all([
+          api.products.deleteAll(),
+          api.transactions.deleteAll(),
+          api.locationEntries.deleteAll(),
+          api.customers.deleteAll(),
+          api.deliveryNotes.deleteAll(),
+          api.savedDeliveryNotes.deleteAll()
+        ]);
       }
       setProducts([]);
       setTransactions([]);
       setLocationEntries([]);
+      setCustomers([]);
+      setDeliveryNotes([]);
+      setSavedDeliveryNotes([]);
       setSelectedRows([]);
-      showNotification('Đã xóa toàn bộ dữ liệu Tồn kho, Nhập/Xuất & Vị trí', 'success');
+      showNotification('Đã xóa toàn bộ dữ liệu hệ thống (Tồn kho, Khách hàng, Phiếu giao nhận...)', 'success');
     } catch (error) {
       console.error('Lỗi khi xóa đồng loạt:', error);
-      showNotification('Có lỗi xảy ra khi xóa toàn bộ dữ liệu', 'error');
+      showNotification('Có lỗi xảy ra khi xóa toàn bộ dữ liệu. Một số dữ liệu có thể chưa được xóa.', 'error');
     }
   };
 
@@ -1951,6 +1974,7 @@ export default function App() {
     const productsWithTransactions = new Set<string>();
 
     transactions.forEach(t => {
+      if (t.isDeleted) return; // Ignore deleted transactions in inventory calculation
       const product = productMap.get(t.productId);
       if (!product) return;
 
