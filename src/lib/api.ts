@@ -232,12 +232,13 @@ export const api = {
         const mappedData = (data || []).map(row => ({
           ...row,
           productId: row.productid ?? row.productId ?? '',
+          quantity: Number(row.quantity ?? row.qty ?? 0),
           loaiChiDinh: row.loaichidinh ?? row.loaiChiDinh ?? '',
           lotNo: row.lotno ?? row.lotNo ?? '',
           ghiChu: row.ghichu ?? row.ghiChu ?? '',
           designationCode: row.designationcode ?? row.designationCode ?? '',
           updateDate: row.updatedate ?? row.updateDate ?? '',
-          isDeleted: row.isdeleted ?? row.isDeleted ?? false
+          isDeleted: Boolean(row.isdeleted ?? row.isDeleted ?? false)
         })) as Transaction[];
         setCache('transactions', mappedData, 30 * 24 * 3600000);
         return mappedData;
@@ -258,7 +259,8 @@ export const api = {
         ghichu: transaction.ghiChu,
         designationcode: transaction.designationCode,
         updatedate: transaction.updateDate,
-        isdeleted: transaction.isDeleted || false
+        isdeleted: transaction.isDeleted || false,
+        quantity: Number(transaction.quantity) || 0
       };
       delete (payload as any).productId;
       delete (payload as any).loaiChiDinh;
@@ -272,7 +274,7 @@ export const api = {
         const { error } = await supabase.from('transactions').upsert(payload);
         if (error) throw error;
       } catch (err) {
-        console.warn('Offline mode: transaction upsert saved locally via full sync');
+        console.warn('Network issue: transaction upsert cached locally', err);
       }
     },
     async upsertAll(transactions: Transaction[]): Promise<void> {
@@ -286,7 +288,8 @@ export const api = {
           ghichu: transaction.ghiChu,
           designationcode: transaction.designationCode,
           updatedate: transaction.updateDate,
-          isdeleted: transaction.isDeleted || false
+          isdeleted: transaction.isDeleted || false,
+          quantity: Number(transaction.quantity) || 0
         };
         delete (t as any).productId;
         delete (t as any).loaiChiDinh;

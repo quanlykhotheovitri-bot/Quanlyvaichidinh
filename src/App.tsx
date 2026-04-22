@@ -325,19 +325,10 @@ export default function App() {
         api.deliveryNoteHeader.get()
       ]);
 
-      if (dbProducts.length > 0) {
-        setProducts(dbProducts);
-      }
-
-      if (dbTransactions.length > 0) {
-        setTransactions(dbTransactions);
-      }
-
-      if (dbCustomers.length > 0) {
-        setCustomers(dbCustomers);
-      }
-
-      if (dbDeliveryNotes.length > 0) setDeliveryNotes(dbDeliveryNotes);
+      setProducts(dbProducts);
+      setTransactions(dbTransactions);
+      setCustomers(dbCustomers);
+      setDeliveryNotes(dbDeliveryNotes);
       if (dbLocationEntries.length > 0) {
         setLocationEntries(dbLocationEntries.filter(e => e.type === 'input' || !e.type));
         const inventoryEntries = dbLocationEntries.filter(e => e.type === 'inventory');
@@ -1742,7 +1733,14 @@ export default function App() {
       setProducts(prev => prev.filter(p => p.id !== id));
       setTransactions(prev => prev.filter(t => t.productId !== id));
     } else if (type === 'transaction') {
-      setTransactions(prev => prev.map(t => t.id === id ? { ...t, isDeleted: true } : t));
+      setTransactions(prev => {
+        const updated = prev.map(t => t.id === id ? { ...t, isDeleted: true } : t);
+        const tx = updated.find(t => t.id === id);
+        if (tx) {
+          api.transactions.upsert(tx).catch(err => console.error('Error syncing individual transaction delete:', err));
+        }
+        return updated;
+      });
     } else if (type === 'customer') {
       setCustomers(prev => prev.filter(c => c.id !== id));
     } else if (type === 'location') {
@@ -1867,12 +1865,15 @@ export default function App() {
         loadData();
       }
     } else if (currentTab === 'inbound' || currentTab === 'outbound') {
+      const itemsToUpdate = transactions.filter(t => idsToDelete.includes(t.id));
+      if (itemsToUpdate.length === 0) return;
+
+      const txsWithDeletedFlag = itemsToUpdate.map(t => ({ ...t, isDeleted: true }));
+      
       setTransactions(prev => prev.map(t => idsToDelete.includes(t.id) ? { ...t, isDeleted: true } : t));
+      
       try {
-        const txsToUpsert = transactions
-          .filter(t => idsToDelete.includes(t.id))
-          .map(t => ({ ...t, isDeleted: true }));
-        await api.transactions.upsertAll(txsToUpsert);
+        await api.transactions.upsertAll(txsWithDeletedFlag);
         showNotification('Đã xóa dữ liệu hiển thị (tồn kho không đổi).');
       } catch (error) {
         showNotification('Lỗi khi xóa dữ liệu.', 'error');
@@ -2033,10 +2034,11 @@ export default function App() {
         }
       }
 
+      const qty = Number(t.quantity) || 0;
       if (t.type === 'inbound') {
-        batches[batchKey].totalInbound += t.quantity;
+        batches[batchKey].totalInbound += qty;
       } else {
-        batches[batchKey].totalOutbound += t.quantity;
+        batches[batchKey].totalOutbound += qty;
       }
       batches[batchKey].currentStock = batches[batchKey].totalInbound - batches[batchKey].totalOutbound;
     });
