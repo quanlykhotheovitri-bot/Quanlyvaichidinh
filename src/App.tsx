@@ -1995,7 +1995,7 @@ export default function App() {
     const productsWithTransactions = new Set<string>();
 
     transactions.forEach(t => {
-      if (t.isDeleted) return; // Ignore deleted transactions in inventory calculation
+      // t.isDeleted transactions are still counted in inventory to keep stock unchanged as requested
       const product = productMap.get(t.productId);
       if (!product) return;
 
@@ -2757,7 +2757,10 @@ export default function App() {
           }).filter(Boolean) as Transaction[];
 
           if (newTransactions.length > 0) {
-            return [...prevTransactions, ...newTransactions];
+            const updated = [...prevTransactions, ...newTransactions];
+            // Immediate sync to prevent data loss on app close
+            api.transactions.upsertAll(newTransactions).catch(err => console.error('Error syncing new transactions:', err));
+            return updated;
           }
           return prevTransactions;
         });
