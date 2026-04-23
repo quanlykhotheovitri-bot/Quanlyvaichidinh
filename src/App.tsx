@@ -265,6 +265,23 @@ export default function App() {
     });
   }, []);
 
+  const checkOutboundRestriction = useCallback((batch: { ghiChu?: string, designationCode?: string }, orderContext: { saleOrder?: string, loaiChiDinh?: string }): string | null => {
+    const note = (batch.ghiChu || '').toUpperCase();
+    const designation = (batch.designationCode || '').toUpperCase();
+    const combined = note + ' ' + designation;
+    
+    if (combined.includes('KEEP')) return 'Mã hàng đang được đặt trạng thái "Keep", không được phép xuất kho.';
+    if (combined.includes('RMW')) return 'Mã hàng đang được đặt trạng thái "RMW", không được phép xuất kho.';
+    if (combined.includes('SLT')) {
+       const saleOrder = (orderContext.saleOrder || '').toUpperCase();
+       const loaiChiDinh = (orderContext.loaiChiDinh || '').toUpperCase();
+       if (!saleOrder.includes('SLT') && !loaiChiDinh.includes('SLT')) {
+          return 'Mã hàng trạng thái "SLT" chỉ được phép xuất cho các đơn hàng SLT.';
+       }
+    }
+    return null;
+  }, []);
+
   const findAssignedFabricLot = useCallback((issueRow: { sku: string, rpro: string, no: string, ovnSaleOrder?: string }, inventoryRows: InventoryItem[]) => {
     const sku = issueRow.sku.toLowerCase().trim();
     const ovnSaleOrder = (issueRow.ovnSaleOrder || '').toUpperCase();
@@ -290,16 +307,12 @@ export default function App() {
       const designation = (m.designationCode || '').toUpperCase();
       const note = (m.ghiChu || '').toUpperCase();
       
-      // Rule: "Keep" -> exclude
-      if (designation.includes('KEEP') || note.includes('KEEP')) return false;
+      const restrictionError = checkOutboundRestriction(
+        { ghiChu: note, designationCode: designation },
+        { saleOrder: ovnSaleOrder }
+      );
       
-      // Rule: "RMW" -> exclude
-      if (designation.includes('RMW') || note.includes('RMW')) return false;
-      
-      // Rule: "SLT" -> only if OVN Sale Order contains "SLT"
-      if (designation.includes('SLT') || note.includes('SLT')) {
-        if (!ovnSaleOrder.includes('SLT')) return false;
-      }
+      if (restrictionError) return false;
       
       return true;
     });
@@ -629,6 +642,7 @@ export default function App() {
 
     const today = format(new Date(), 'dd/MM/yyyy');
     const newTransactions: Transaction[] = [];
+    const restrictedItems: string[] = [];
 
     deliveryNotes.forEach(item => {
       // Kiểm tra xem assignedLots có khớp với field lotNo hiện tại không
@@ -640,18 +654,34 @@ export default function App() {
         item.assignedLots.forEach(lot => {
           const product = products.find(p => p.sku === item.item);
           if (product) {
-            newTransactions.push({
-              id: generateId(),
-              productId: product.id,
-              type: 'outbound',
-              quantity: lot.qty,
-              date: today,
-              partner: item.customerCode || item.noCode || 'Unknown',
-              lotNo: lot.lotNo,
-              ghiChu: 'Xuất từ Phiếu giao nhận',
-              designationCode: lot.remark,
-              loaiChiDinh: lot.loaiChiDinh
-            });
+            // Find inventory match to check notes
+            const invMatch = inventory.find(inv => 
+              inv.productId === product.id && 
+              inv.lotNo === lot.lotNo && 
+              inv.designationCode === lot.remark
+            );
+
+            const restrictionError = checkOutboundRestriction(
+              { ghiChu: invMatch?.ghiChu, designationCode: invMatch?.designationCode },
+              { saleOrder: item.ovnSaleOrder, loaiChiDinh: item.loaiChiDinh }
+            );
+
+            if (restrictionError) {
+              restrictedItems.push(`Dòng ${item.no}: Lot ${lot.lotNo} - ${restrictionError}`);
+            } else {
+              newTransactions.push({
+                id: generateId(),
+                productId: product.id,
+                type: 'outbound',
+                quantity: lot.qty,
+                date: today,
+                partner: item.customerCode || item.noCode || 'Unknown',
+                lotNo: lot.lotNo,
+                ghiChu: 'Xuất từ Phiếu giao nhận',
+                designationCode: lot.remark,
+                loaiChiDinh: lot.loaiChiDinh
+              });
+            }
           }
         });
       } else if (item.lotNo && (item.actualIssuedQty || item.actualQty) > 0) {
@@ -670,22 +700,36 @@ export default function App() {
               inv.lotNo === lotName
             );
 
-            newTransactions.push({
-              id: generateId(),
-              productId: product.id,
-              type: 'outbound',
-              quantity: qtyPerLot,
-              date: today,
-              partner: item.customerCode || item.noCode || 'Unknown',
-              lotNo: lotName,
-              ghiChu: 'Xuất từ Phiếu giao nhận',
-              designationCode: invMatch?.designationCode || item.remark || '',
-              loaiChiDinh: invMatch?.loaiChiDinh || (item.stock.includes('(') ? item.stock.split('(')[1].replace(')', '') : '')
-            });
+            const restrictionError = checkOutboundRestriction(
+              { ghiChu: invMatch?.ghiChu, designationCode: invMatch?.designationCode },
+              { saleOrder: item.ovnSaleOrder, loaiChiDinh: item.loaiChiDinh }
+            );
+
+            if (restrictionError) {
+              restrictedItems.push(`Dòng ${item.no}: Lot ${lotName} - ${restrictionError}`);
+            } else {
+              newTransactions.push({
+                id: generateId(),
+                productId: product.id,
+                type: 'outbound',
+                quantity: qtyPerLot,
+                date: today,
+                partner: item.customerCode || item.noCode || 'Unknown',
+                lotNo: lotName,
+                ghiChu: 'Xuất từ Phiếu giao nhận',
+                designationCode: invMatch?.designationCode || item.remark || '',
+                loaiChiDinh: invMatch?.loaiChiDinh || (item.stock.includes('(') ? item.stock.split('(')[1].replace(')', '') : '')
+              });
+            }
           });
         }
       }
     });
+
+    if (restrictedItems.length > 0) {
+      alert(`Không thể thực hiện xuất kho do các hạn chế sau:\n\n${restrictedItems.join('\n')}`);
+      return;
+    }
 
     if (newTransactions.length > 0) {
       const today = format(new Date(), 'dd/MM/yyyy');
@@ -1420,7 +1464,7 @@ export default function App() {
               date: format(new Date(), 'dd/MM/yyyy'),
               partner: 'Điều chỉnh tồn kho',
               lotNo: newProduct.lotNo || '',
-              ghiChu: 'Điều chỉnh số lượng từ giao diện tồn kho',
+              ghiChu: newProduct.ghiChu || '',
               designationCode: newProduct.designationCode || '',
               loaiChiDinh: newProduct.loaiChiDinh || ''
             };
@@ -1443,7 +1487,7 @@ export default function App() {
             date: format(new Date(), 'dd/MM/yyyy'),
             partner: 'Điều chỉnh tồn kho',
             lotNo: newProduct.lotNo || '',
-            ghiChu: 'Điều chỉnh số lượng từ giao diện tồn kho',
+            ghiChu: newProduct.ghiChu || '',
             designationCode: newProduct.designationCode || '',
             loaiChiDinh: newProduct.loaiChiDinh || ''
           };
@@ -1508,6 +1552,26 @@ export default function App() {
       setTransactions([...transactions, updatedTransaction]);
     }
     
+    const isOutbound = (editingId ? updatedTransaction.type : (activeTab === 'inbound' ? 'inbound' : 'outbound')) === 'outbound';
+    if (isOutbound) {
+      // Find the source batch from inventory
+      const sourceBatch = inventory.find(inv => 
+        inv.productId === updatedTransaction.productId && 
+        inv.lotNo === updatedTransaction.lotNo && 
+        inv.designationCode === updatedTransaction.designationCode
+      );
+
+      const restrictionError = checkOutboundRestriction(
+        { ghiChu: sourceBatch?.ghiChu, designationCode: sourceBatch?.designationCode },
+        { loaiChiDinh: updatedTransaction.loaiChiDinh }
+      );
+
+      if (restrictionError) {
+        showNotification(restrictionError, 'error');
+        return;
+      }
+    }
+
     try {
       await api.transactions.upsert(updatedTransaction);
       showNotification('Giao dịch đã được lưu.');
