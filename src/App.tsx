@@ -365,6 +365,7 @@ export default function App() {
         });
       }
       setHasLoadedData(true);
+      showNotification(`Đã tải thành công: ${dbProducts.length} sản phẩm, ${dbTransactions.length} giao dịch.`);
     } catch (error) {
       console.error('Error loading data from Supabase:', error);
     } finally {

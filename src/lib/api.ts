@@ -108,16 +108,42 @@ const chunkArray = <T>(array: T[], size: number): T[][] => {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+const fetchAll = async <T>(table: string): Promise<T[]> => {
+  let allData: T[] = [];
+  let from = 0;
+  const step = 1000;
+  let hasMore = true;
+
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .range(from, from + step - 1);
+
+    if (error) throw error;
+    if (data && data.length > 0) {
+      allData = [...allData, ...data];
+      if (data.length < step) {
+        hasMore = false;
+      } else {
+        from += step;
+      }
+    } else {
+      hasMore = false;
+    }
+  }
+  return allData;
+};
+
 export const api = {
   products: {
     async getAll(): Promise<Product[]> {
       try {
-        const { data, error } = await supabase.from('products').select('*');
-        if (error) throw error;
+        const data = await fetchAll<any>('products');
         
         const mappedData = (data || []).map(row => ({
           ...row,
-          minStock: row.minstock ?? row.minStock ?? 0,
+          minStock: Number(row.minstock ?? row.minStock ?? 0),
           lotNo: row.lotno ?? row.lotNo ?? '',
           ghiChu: row.ghichu ?? row.ghiChu ?? '',
           designationCode: row.designationcode ?? row.designationCode ?? '',
@@ -229,8 +255,7 @@ export const api = {
   transactions: {
     async getAll(): Promise<Transaction[]> {
       try {
-        const { data, error } = await supabase.from('transactions').select('*');
-        if (error) throw error;
+        const data = await fetchAll<any>('transactions');
         
         const mappedData = (data || []).map(row => ({
           ...row,
@@ -380,8 +405,7 @@ export const api = {
   customers: {
     async getAll(): Promise<Customer[]> {
       try {
-        const { data, error } = await supabase.from('customers').select('*');
-        if (error) throw error;
+        const data = await fetchAll<any>('customers');
         
         const mappedData = data as Customer[];
         
@@ -472,18 +496,17 @@ export const api = {
   deliveryNotes: {
     async getAll(): Promise<DeliveryNoteItem[]> {
       try {
-        const { data, error } = await supabase.from('delivery_notes').select('*');
-        if (error) throw error;
+        const data = await fetchAll<any>('delivery_notes');
         
         const mappedData = (data || []).map(row => ({
           ...row,
           ovnSaleOrder: row.ovnsaleorder ?? row.ovnSaleOrder ?? '',
           ovnProductionOrder: row.ovnproductionorder ?? row.ovnProductionOrder ?? '',
           materialName: row.materialname ?? row.materialName ?? '',
-          qtyErp: row.qtyerp ?? row.qtyErp ?? 0,
-          actualQty: row.actualqty ?? row.actualQty ?? 0,
+          qtyErp: Number(row.qtyerp ?? row.qtyErp ?? 0),
+          actualQty: Number(row.actualqty ?? row.actualQty ?? 0),
           lotNo: row.lotno ?? row.lotNo ?? '',
-          actualIssuedQty: row.actualissuedqty ?? row.actualIssuedQty ?? 0,
+          actualIssuedQty: Number(row.actualissuedqty ?? row.actualIssuedQty ?? 0),
           customerCode: row.customercode ?? row.customerCode ?? '',
           finalDestination: row.finaldestination ?? row.finalDestination ?? '',
           noCode: row.nocode ?? row.noCode ?? '',
@@ -581,11 +604,11 @@ export const api = {
   locationEntries: {
     async getAll(): Promise<LocationEntry[]> {
       try {
-        const { data, error } = await supabase.from('location_entries').select('*');
-        if (error) throw error;
+        const data = await fetchAll<any>('location_entries');
         
         const mappedData = (data || []).map(row => ({
           ...row,
+          quantity: Number(row.quantity ?? 1),
           scanType: row.scantype ?? row.scanType ?? 'INPUT'
         })) as LocationEntry[];
 
@@ -732,8 +755,7 @@ export const api = {
   savedDeliveryNotes: {
     async getAll(): Promise<{id: string, date: string, items: DeliveryNoteItem[]}[]> {
       try {
-        const { data, error } = await supabase.from('saved_delivery_notes').select('*');
-        if (error) throw error;
+        const data = await fetchAll<any>('saved_delivery_notes');
         
         const mappedData = data as {id: string, date: string, items: DeliveryNoteItem[]}[];
 
