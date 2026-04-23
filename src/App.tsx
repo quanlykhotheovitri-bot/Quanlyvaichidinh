@@ -1420,13 +1420,15 @@ export default function App() {
         const originalBatch = inventory.find(i => i.id === editingBatchId);
         
         if (originalBatch) {
-          const hasBatchInfoChanged = 
+          const hasBatchMetadataChanged = 
             originalBatch.lotNo !== newProduct.lotNo || 
-            originalBatch.designationCode !== newProduct.designationCode;
+            originalBatch.designationCode !== newProduct.designationCode ||
+            originalBatch.loaiChiDinh !== newProduct.loaiChiDinh ||
+            originalBatch.ghiChu !== newProduct.ghiChu;
 
-          if (hasBatchInfoChanged && !editingBatchId.endsWith('-empty')) {
-            // Update ALL transactions for this original batch to the new Lot/Designation
-            // This ensures we save on the SAME row instead of creating a new one
+          if (hasBatchMetadataChanged && !editingBatchId.endsWith('-empty')) {
+            // Update ALL transactions for this original batch to the new Lot/Designation/Metadata
+            // This ensures we save on the SAME row instead of creating a new one or losing metadata
             const updatedTransactions = transactions.map(t => {
               if (
                 t.productId === originalBatch.productId && 
@@ -1438,7 +1440,7 @@ export default function App() {
                   lotNo: newProduct.lotNo || '',
                   designationCode: newProduct.designationCode || '',
                   loaiChiDinh: newProduct.loaiChiDinh || '',
-                  ghiChu: newProduct.ghiChu || t.ghiChu
+                  ghiChu: newProduct.ghiChu || ''
                 };
               }
               return t;
