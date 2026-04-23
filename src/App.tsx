@@ -553,10 +553,12 @@ export default function App() {
     // Group by Item (SKU) and specific Designation Context
     const groups = new Map<string, DeliveryNoteItem[]>();
     notes.forEach(item => {
-      // Use the existing loaiChiDinh if already set, otherwise determine it
-      const loai = item.loaiChiDinh || determineLoaiChiDinh(item.item, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode, '');
+      // Proactively determine loaiChiDinh to ensure grouping is correct even if not assigned yet
+      const loai = item.loaiChiDinh && item.loaiChiDinh !== 'NORMAL' 
+        ? item.loaiChiDinh 
+        : determineLoaiChiDinh(item.item, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode, '');
       
-      // Use a granular grouping key (SKU + Loai + Orders) to ensure each distinct requirement is rounded
+      // Granular grouping: each specific order requirement should be its own rounding group
       const groupKey = [
         item.item.trim().toUpperCase(),
         (loai || 'NORMAL').trim().toUpperCase(),
@@ -573,15 +575,15 @@ export default function App() {
       const totalQtyErp = items.reduce((sum, i) => sum + (i.qtyErp || 0), 0);
       if (totalQtyErp <= 0) return;
 
-      const targetTotal = Math.ceil(totalQtyErp);
+      // Always round up to integer for delivery requirements
+      const targetTotal = Math.ceil(Number(totalQtyErp.toFixed(4)));
       const diff = targetTotal - totalQtyErp;
 
-      // Find row with largest qtyErp in this group to apply the rounding surplus
       let maxIdx = 0;
       let maxVal = -1;
       items.forEach((item, idx) => {
-        if (item.qtyErp > maxVal) {
-          maxVal = item.qtyErp;
+        if ((item.qtyErp || 0) > maxVal) {
+          maxVal = (item.qtyErp || 0);
           maxIdx = idx;
         }
       });
@@ -591,8 +593,8 @@ export default function App() {
           ? Number((item.qtyErp + diff).toFixed(4))
           : item.qtyErp;
         
-        // Update Actual Qty and reset tracking fields if changed
-        if (Number(item.actualQty || 0).toFixed(4) !== Number(newActualQty).toFixed(4)) {
+        // Update Actual Qty and reset tracking fields if target changed
+        if (Math.abs(Number(item.actualQty || 0) - newActualQty) > 0.0001) {
           item.actualQty = newActualQty;
           item.assignedLots = [];
           item.actualIssuedQty = 0;
@@ -2476,8 +2478,14 @@ export default function App() {
         const available = match.tempStock !== undefined ? match.tempStock : match.currentStock;
         if (available <= 0) continue;
 
-        const allocation = Math.min(available, remainingNeeded);
+        let allocation = Math.min(available, remainingNeeded);
         
+        // Fix for Row 23: for designated RPRO/SLT, allow over-assignment to reach the target integer if the gap is small (rounding residue)
+        const isDesignated = (item.loaiChiDinh && item.loaiChiDinh !== 'NORMAL');
+        if (isDesignated && remainingNeeded > available && (remainingNeeded - available) < 1) {
+          allocation = remainingNeeded;
+        }
+
         if (match.tempStock !== undefined) {
           match.tempStock -= allocation;
         } else {
