@@ -544,20 +544,24 @@ export default function App() {
   };
 
   const recalculateActualQty = (notes: DeliveryNoteItem[]) => {
+    // Group by Item (SKU) and Designation Type
     const groups = new Map<string, DeliveryNoteItem[]>();
     notes.forEach(item => {
-      const loai = determineLoaiChiDinh(item.item, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode, item.loaiChiDinh);
-      const groupKey = `${item.item}|${loai}`;
+      // Use the existing loaiChiDinh if already set, otherwise determine it
+      const loai = item.loaiChiDinh || determineLoaiChiDinh(item.item, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode, '');
+      const groupKey = `${item.item.trim().toUpperCase()}|${(loai || 'NORMAL').trim().toUpperCase()}`;
       if (!groups.has(groupKey)) groups.set(groupKey, []);
       groups.get(groupKey)!.push(item);
     });
 
     groups.forEach(items => {
-      const totalQtyErp = items.reduce((sum, i) => sum + i.qtyErp, 0);
+      const totalQtyErp = items.reduce((sum, i) => sum + (i.qtyErp || 0), 0);
+      if (totalQtyErp <= 0) return;
+
       const targetTotal = Math.ceil(totalQtyErp);
       const diff = targetTotal - totalQtyErp;
 
-      // Find row with largest qtyErp in this group
+      // Find row with largest qtyErp in this group to apply the rounding surplus
       let maxIdx = 0;
       let maxVal = -1;
       items.forEach((item, idx) => {
@@ -572,7 +576,8 @@ export default function App() {
           ? Number((item.qtyErp + diff).toFixed(4))
           : item.qtyErp;
         
-        if (item.actualQty !== newActualQty) {
+        // Update Actual Qty and reset tracking fields if changed
+        if (Number(item.actualQty || 0).toFixed(4) !== Number(newActualQty).toFixed(4)) {
           item.actualQty = newActualQty;
           item.assignedLots = [];
           item.actualIssuedQty = 0;
