@@ -135,46 +135,42 @@ export const api = {
     async upsert(product: Product): Promise<void> {
       updateCacheSingle('products', product);
       const payload = {
-        ...product,
-        minstock: product.minStock,
-        lotno: product.lotNo,
-        ghichu: product.ghiChu,
-        designationcode: product.designationCode,
-        loaichidinh: product.loaiChiDinh
+        id: product.id,
+        sku: product.sku,
+        name: product.name,
+        category: product.category,
+        unit: product.unit,
+        minstock: product.minStock || 0,
+        lotno: product.lotNo || '',
+        ghichu: product.ghiChu || '',
+        designationcode: product.designationCode || '',
+        loaichidinh: product.loaiChiDinh || '',
+        rpro: product.rpro || ''
       };
-      // Delete camelCase keys to avoid PGRST204
-      delete (payload as any).minStock;
-      delete (payload as any).lotNo;
-      delete (payload as any).ghiChu;
-      delete (payload as any).designationCode;
-      delete (payload as any).loaiChiDinh;
 
       try {
         const { error } = await supabase.from('products').upsert(payload);
         if (error) throw error;
       } catch (err) {
-        console.warn('Offline mode: product upsert saved locally via full sync');
+        console.warn('Product upsert failed, stored in local cache:', err);
       }
     },
     async upsertAll(products: Product[]): Promise<void> {
       if (!products.length) return;
-      const payload = products.map(product => {
-        const p = {
-          ...product,
-          minstock: product.minStock,
-          lotno: product.lotNo,
-          ghichu: product.ghiChu,
-          designationcode: product.designationCode,
-          loaichidinh: product.loaiChiDinh
-        };
-        delete (p as any).minStock;
-        delete (p as any).lotNo;
-        delete (p as any).ghiChu;
-        delete (p as any).designationCode;
-        delete (p as any).loaiChiDinh;
-        return p;
-      });
-      updateCacheMultiple('products', products); // Correctly update cache
+      const payload = products.map(product => ({
+        id: product.id,
+        sku: product.sku,
+        name: product.name,
+        category: product.category,
+        unit: product.unit,
+        minstock: product.minStock || 0,
+        lotno: product.lotNo || '',
+        ghichu: product.ghiChu || '',
+        designationcode: product.designationCode || '',
+        loaichidinh: product.loaiChiDinh || '',
+        rpro: product.rpro || ''
+      }));
+      updateCacheMultiple('products', products);
       try {
         const chunks = chunkArray(payload, 500);
         for (const chunk of chunks) {
@@ -184,7 +180,6 @@ export const api = {
         }
       } catch (err) {
         console.error('Error in products upsertAll:', err);
-        console.warn('Sync failed: data remains in local cache');
       }
     },
     async delete(id: string): Promise<void> {
@@ -252,54 +247,45 @@ export const api = {
     async upsert(transaction: Transaction): Promise<void> {
       updateCacheSingle('transactions', transaction);
       const payload = {
-        ...transaction,
+        id: transaction.id,
         productid: transaction.productId,
-        loaichidinh: transaction.loaiChiDinh,
-        lotno: transaction.lotNo,
-        ghichu: transaction.ghiChu,
-        designationcode: transaction.designationCode,
-        updatedate: transaction.updateDate,
-        isdeleted: transaction.isDeleted || false,
-        quantity: Number(transaction.quantity) || 0
+        type: transaction.type,
+        quantity: Number(transaction.quantity) || 0,
+        date: transaction.date,
+        partner: transaction.partner || 'N/A',
+        lotno: transaction.lotNo || '',
+        loaichidinh: transaction.loaiChiDinh || '',
+        ghichu: transaction.ghiChu || '',
+        designationcode: transaction.designationCode || '',
+        rpro: transaction.rpro || '',
+        updatedate: transaction.updateDate || '',
+        isdeleted: transaction.isDeleted || false
       };
-      delete (payload as any).productId;
-      delete (payload as any).loaiChiDinh;
-      delete (payload as any).lotNo;
-      delete (payload as any).ghiChu;
-      delete (payload as any).designationCode;
-      delete (payload as any).updateDate;
-      delete (payload as any).isDeleted;
 
       try {
         const { error } = await supabase.from('transactions').upsert(payload);
         if (error) throw error;
       } catch (err) {
-        console.warn('Network issue: transaction upsert cached locally', err);
+        console.warn('Transaction upsert failed, stored in local cache:', err);
       }
     },
     async upsertAll(transactions: Transaction[]): Promise<void> {
       if (!transactions.length) return;
-      const payload = transactions.map(transaction => {
-        const t = {
-          ...transaction,
-          productid: transaction.productId,
-          loaichidinh: transaction.loaiChiDinh,
-          lotno: transaction.lotNo,
-          ghichu: transaction.ghiChu,
-          designationcode: transaction.designationCode,
-          updatedate: transaction.updateDate,
-          isdeleted: transaction.isDeleted || false,
-          quantity: Number(transaction.quantity) || 0
-        };
-        delete (t as any).productId;
-        delete (t as any).loaiChiDinh;
-        delete (t as any).lotNo;
-        delete (t as any).ghiChu;
-        delete (t as any).designationCode;
-        delete (t as any).updateDate;
-        delete (t as any).isDeleted;
-        return t;
-      });
+      const payload = transactions.map(transaction => ({
+        id: transaction.id,
+        productid: transaction.productId,
+        type: transaction.type,
+        quantity: Number(transaction.quantity) || 0,
+        date: transaction.date,
+        partner: transaction.partner || 'N/A',
+        lotno: transaction.lotNo || '',
+        loaichidinh: transaction.loaiChiDinh || '',
+        ghichu: transaction.ghiChu || '',
+        designationcode: transaction.designationCode || '',
+        rpro: transaction.rpro || '',
+        updatedate: transaction.updateDate || '',
+        isdeleted: transaction.isDeleted || false
+      }));
       
       updateCacheMultiple('transactions', transactions);
       
@@ -312,7 +298,6 @@ export const api = {
         }
       } catch (err) {
         console.error('Error in transactions upsertAll:', err);
-        console.warn('Sync failed: data remains in local cache');
       }
     },
     async delete(id: string): Promise<void> {

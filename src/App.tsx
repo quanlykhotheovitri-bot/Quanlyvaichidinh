@@ -22,6 +22,11 @@ import {
   MapPin,
   Save,
   WifiOff,
+  Wifi,
+  History,
+  RefreshCw,
+  Database,
+  ArrowDownLeft,
   AlertCircle,
   CheckCircle2,
   X,
@@ -313,7 +318,10 @@ export default function App() {
     setSelectedRows([]);
   }, [activeTab, locationSubTab]);
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const loadData = async () => {
+    setIsRefreshing(true);
     try {
       const [dbProducts, dbTransactions, dbCustomers, dbDeliveryNotes, dbLocationEntries, dbSavedDeliveryNotes, dbHeader] = await Promise.all([
         api.products.getAll(),
@@ -359,6 +367,8 @@ export default function App() {
       setHasLoadedData(true);
     } catch (error) {
       console.error('Error loading data from Supabase:', error);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -1998,22 +2008,25 @@ export default function App() {
     transactions.forEach(t => {
       // t.isDeleted transactions are still counted in inventory to keep stock unchanged as requested
       const product = productMap.get(t.productId);
-      if (!product) return;
-
+      
       productsWithTransactions.add(t.productId);
 
       const batchKey = `${t.productId}-${t.lotNo || ''}-${t.designationCode || ''}`;
       
       if (!batches[batchKey]) {
         batches[batchKey] = {
-          ...product,
           id: batchKey,
-          productId: product.id,
+          sku: product?.sku || 'N/A',
+          name: product?.name || 'Sản phẩm đã bị xóa hoặc chưa đồng bộ',
+          category: product?.category || '',
+          unit: product?.unit || '',
+          minStock: product?.minStock || 0,
+          productId: t.productId,
           lotNo: t.lotNo || '',
           ghiChu: t.ghiChu || '',
           designationCode: t.designationCode || '',
           loaiChiDinh: t.loaiChiDinh || '',
-          rpro: t.rpro || product.rpro || '',
+          rpro: t.rpro || product?.rpro || '',
           totalInbound: 0,
           totalOutbound: 0,
           currentStock: 0,
@@ -3460,6 +3473,49 @@ export default function App() {
         )}
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+          {/* Quick Stats Diagnostic Bar */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 no-print">
+            <div className="bg-[#141414] text-[#E4E3E0] p-4 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-tighter opacity-50">Sản phẩm (DB)</p>
+                <p className="text-xl font-black">{products.length}</p>
+              </div>
+              <Package size={24} className="opacity-20" />
+            </div>
+            <div className="bg-[#141414] text-[#E4E3E0] p-4 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-tighter opacity-50">Giao dịch (DB)</p>
+                <p className="text-xl font-black">{transactions.length}</p>
+              </div>
+              <History size={24} className="opacity-20" />
+            </div>
+            <div 
+              className={cn(
+                "p-4 flex items-center justify-between border cursor-pointer group",
+                isOnline ? "bg-green-50 border-green-200 text-green-900" : "bg-red-50 border-red-200 text-red-900"
+              )}
+              onClick={loadData}
+            >
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-tighter opacity-50">Supabase</p>
+                <p className="text-sm font-bold flex items-center gap-1">
+                  {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
+                  {isOnline ? 'Đã kết nối' : 'Ngoại tuyến'}
+                </p>
+              </div>
+              <RefreshCw className={cn("opacity-40 group-hover:opacity-100", isRefreshing && "animate-spin")} size={20} />
+            </div>
+            <div className="bg-blue-50 border border-blue-200 text-blue-900 p-4 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-tighter opacity-50">Local Storage</p>
+                <p className="text-xs font-mono font-bold">
+                  {Math.round(JSON.stringify(localStorage).length / 1024)} KB
+                </p>
+              </div>
+              <Database size={24} className="opacity-20" />
+            </div>
+          </div>
+
           <AnimatePresence mode="wait">
             {activeTab === 'dashboard' && (
               <motion.div 
