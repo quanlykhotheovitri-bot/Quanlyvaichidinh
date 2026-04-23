@@ -532,12 +532,6 @@ export default function App() {
   const determineLoaiChiDinh = (itemCode: string, prodOrder: string, saleOrder: string, noCode: string, currentLoai: string) => {
     if (currentLoai && currentLoai !== 'NORMAL') return currentLoai;
     
-    // Proactively detect designation from prefixes if current is NORMAL/empty
-    const p = (prodOrder || '').toUpperCase().trim();
-    const s = (saleOrder || '').toUpperCase().trim();
-    if (p.startsWith('RPRO-') || s.startsWith('RPRO-')) return 'RPRO';
-    if (p.startsWith('SLT-') || s.startsWith('SLT-')) return 'SLT';
-
     const match = inventory.find(inv => 
       inv.sku.toLowerCase().trim() === itemCode.toLowerCase().trim() && 
       (
@@ -550,23 +544,12 @@ export default function App() {
   };
 
   const recalculateActualQty = (notes: DeliveryNoteItem[]) => {
-    // Group by Item (SKU) and specific Designation Context
+    // Group by Item (SKU) and Designation Type
     const groups = new Map<string, DeliveryNoteItem[]>();
     notes.forEach(item => {
-      // Proactively determine loaiChiDinh to ensure grouping is correct even if not assigned yet
-      const loai = item.loaiChiDinh && item.loaiChiDinh !== 'NORMAL' 
-        ? item.loaiChiDinh 
-        : determineLoaiChiDinh(item.item, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode, '');
-      
-      // Granular grouping: each specific order requirement should be its own rounding group
-      const groupKey = [
-        item.item.trim().toUpperCase(),
-        (loai || 'NORMAL').trim().toUpperCase(),
-        (item.ovnProductionOrder || '').trim().toUpperCase(),
-        (item.ovnSaleOrder || '').trim().toUpperCase(),
-        (item.noCode || '').trim().toUpperCase()
-      ].join('|');
-
+      // Use the existing loaiChiDinh if already set, otherwise determine it
+      const loai = item.loaiChiDinh || determineLoaiChiDinh(item.item, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode, '');
+      const groupKey = `${item.item.trim().toUpperCase()}|${(loai || 'NORMAL').trim().toUpperCase()}`;
       if (!groups.has(groupKey)) groups.set(groupKey, []);
       groups.get(groupKey)!.push(item);
     });
@@ -575,15 +558,15 @@ export default function App() {
       const totalQtyErp = items.reduce((sum, i) => sum + (i.qtyErp || 0), 0);
       if (totalQtyErp <= 0) return;
 
-      // Always round up to integer for delivery requirements
-      const targetTotal = Math.ceil(Number(totalQtyErp.toFixed(4)));
+      const targetTotal = Math.ceil(totalQtyErp);
       const diff = targetTotal - totalQtyErp;
 
+      // Find row with largest qtyErp in this group to apply the rounding surplus
       let maxIdx = 0;
       let maxVal = -1;
       items.forEach((item, idx) => {
-        if ((item.qtyErp || 0) > maxVal) {
-          maxVal = (item.qtyErp || 0);
+        if (item.qtyErp > maxVal) {
+          maxVal = item.qtyErp;
           maxIdx = idx;
         }
       });
@@ -593,8 +576,8 @@ export default function App() {
           ? Number((item.qtyErp + diff).toFixed(4))
           : item.qtyErp;
         
-        // Update Actual Qty and reset tracking fields if target changed
-        if (Math.abs(Number(item.actualQty || 0) - newActualQty) > 0.0001) {
+        // Update Actual Qty and reset tracking fields if changed
+        if (Number(item.actualQty || 0).toFixed(4) !== Number(newActualQty).toFixed(4)) {
           item.actualQty = newActualQty;
           item.assignedLots = [];
           item.actualIssuedQty = 0;
