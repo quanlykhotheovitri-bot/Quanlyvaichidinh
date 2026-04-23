@@ -84,6 +84,7 @@ export default function App() {
   
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingBatchId, setEditingBatchId] = useState<string | null>(null);
 
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
@@ -1370,8 +1371,65 @@ export default function App() {
       updatedProduct = { ...newProduct, id: editingId } as Product;
       setProducts(products.map(p => p.id === editingId ? updatedProduct : p));
       
-      // Handle quantity adjustment if editing from inventory
-      if (newProduct.quantity !== undefined) {
+      // if editingBatchId exists, we are editing a specific row from the inventory report
+      if (editingBatchId) {
+        const originalBatch = inventory.find(i => i.id === editingBatchId);
+        
+        if (originalBatch) {
+          const hasBatchInfoChanged = 
+            originalBatch.lotNo !== newProduct.lotNo || 
+            originalBatch.designationCode !== newProduct.designationCode;
+
+          if (hasBatchInfoChanged && !editingBatchId.endsWith('-empty')) {
+            // Update ALL transactions for this original batch to the new Lot/Designation
+            // This ensures we save on the SAME row instead of creating a new one
+            const updatedTransactions = transactions.map(t => {
+              if (
+                t.productId === originalBatch.productId && 
+                (t.lotNo || '') === (originalBatch.lotNo || '') && 
+                (t.designationCode || '') === (originalBatch.designationCode || '')
+              ) {
+                return {
+                  ...t,
+                  lotNo: newProduct.lotNo || '',
+                  designationCode: newProduct.designationCode || '',
+                  loaiChiDinh: newProduct.loaiChiDinh || '',
+                  ghiChu: newProduct.ghiChu || t.ghiChu
+                };
+              }
+              return t;
+            });
+            setTransactions(updatedTransactions);
+            
+            const changedTransactions = updatedTransactions.filter((ut, idx) => ut !== transactions[idx]);
+            if (changedTransactions.length > 0) {
+              api.transactions.upsertAll(changedTransactions).catch(err => console.error('Error syncing batch updates:', err));
+            }
+          }
+
+          // Handle quantity change
+          const currentQty = originalBatch.currentStock;
+          const diff = (newProduct.quantity || 0) - currentQty;
+          
+          if (diff !== 0) {
+            const adjustment: Transaction = {
+              id: generateId(),
+              productId: editingId,
+              type: diff > 0 ? 'inbound' : 'outbound',
+              quantity: Math.abs(diff),
+              date: format(new Date(), 'dd/MM/yyyy'),
+              partner: 'Điều chỉnh tồn kho',
+              lotNo: newProduct.lotNo || '',
+              ghiChu: 'Điều chỉnh số lượng từ giao diện tồn kho',
+              designationCode: newProduct.designationCode || '',
+              loaiChiDinh: newProduct.loaiChiDinh || ''
+            };
+            setTransactions(prev => [...prev, adjustment]);
+            api.transactions.upsert(adjustment).catch(err => console.error('Error syncing adjustment:', err));
+          }
+        }
+      } else if (newProduct.quantity !== undefined) {
+        // Fallback for general product editing (not from a specific batch row)
         const currentBatch = inventory.find(i => i.productId === editingId && i.lotNo === newProduct.lotNo && i.designationCode === newProduct.designationCode);
         const currentQty = currentBatch ? currentBatch.currentStock : 0;
         const diff = (newProduct.quantity || 0) - currentQty;
@@ -1430,6 +1488,7 @@ export default function App() {
     }
     
     setIsProductModalOpen(false);
+    setEditingBatchId(null);
     setNewProduct({ sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: '', quantity: 0 });
   };
 
@@ -3874,6 +3933,7 @@ export default function App() {
                                 <button 
                                   onClick={() => {
                                     setEditingId(item.productId);
+                                    setEditingBatchId(item.id);
                                     setNewProduct({
                                       ...item,
                                       quantity: item.currentStock
