@@ -123,6 +123,14 @@ export const api = {
           designationCode: row.designationcode ?? row.designationCode ?? '',
           loaiChiDinh: row.loaichidinh ?? row.loaiChiDinh ?? ''
         })) as Product[];
+
+        // Smart Cache Merge
+        const cached = getCache<Product[]>('products');
+        if ((!mappedData || mappedData.length === 0) && cached && cached.length > 0) {
+          console.warn('Server returned empty products, preserving local cache to prevent data loss');
+          return cached;
+        }
+
         setCache('products', mappedData, 30 * 24 * 3600000); // 30 days
         return mappedData;
       } catch (err: any) {
@@ -235,6 +243,14 @@ export const api = {
           updateDate: row.updatedate ?? row.updateDate ?? '',
           isDeleted: Boolean(row.isdeleted ?? row.isDeleted ?? false)
         })) as Transaction[];
+
+        // Smart Cache Merge: CRITICAL for preventing loss of imported data not yet on DB
+        const cached = getCache<Transaction[]>('transactions');
+        if ((!mappedData || mappedData.length === 0) && cached && cached.length > 0) {
+          console.warn('Server returned empty transactions, preserving local cache to prevent data loss');
+          return cached;
+        }
+
         setCache('transactions', mappedData, 30 * 24 * 3600000);
         return mappedData;
       } catch (err: any) {
@@ -366,8 +382,18 @@ export const api = {
       try {
         const { data, error } = await supabase.from('customers').select('*');
         if (error) throw error;
-        setCache('customers', data as Customer[], 30 * 24 * 3600000);
-        return data as Customer[];
+        
+        const mappedData = data as Customer[];
+        
+        // Smart Cache Merge
+        const cached = getCache<Customer[]>('customers');
+        if ((!mappedData || mappedData.length === 0) && cached && cached.length > 0) {
+          console.warn('Server returned empty customers, preserving local cache');
+          return cached;
+        }
+
+        setCache('customers', mappedData, 30 * 24 * 3600000);
+        return mappedData;
       } catch (err: any) {
         console.warn('Offline mode: using cached customers', err.message);
         const cached = getCache<Customer[]>('customers');
@@ -377,18 +403,28 @@ export const api = {
     },
     async upsert(customer: Customer): Promise<void> {
       updateCacheSingle('customers', customer);
+      const payload = {
+        id: customer.id,
+        code: customer.code,
+        name: customer.name
+      };
       try {
-        const { error } = await supabase.from('customers').upsert(customer);
+        const { error } = await supabase.from('customers').upsert(payload);
         if (error) throw error;
       } catch (err) {
-        console.warn('Offline mode: upsert saved locally');
+        console.warn('Customer upsert saved locally:', err);
       }
     },
     async upsertAll(customers: Customer[]): Promise<void> {
       if (!customers.length) return;
+      const payload = customers.map(c => ({
+        id: c.id,
+        code: c.code,
+        name: c.name
+      }));
       updateCacheMultiple('customers', customers);
       try {
-        const chunks = chunkArray(customers, 500);
+        const chunks = chunkArray(payload, 500);
         for (const chunk of chunks) {
           const { error } = await supabase.from('customers').upsert(chunk);
           if (error) throw error;
@@ -450,8 +486,18 @@ export const api = {
           actualIssuedQty: row.actualissuedqty ?? row.actualIssuedQty ?? 0,
           customerCode: row.customercode ?? row.customerCode ?? '',
           finalDestination: row.finaldestination ?? row.finalDestination ?? '',
-          noCode: row.nocode ?? row.noCode ?? ''
+          noCode: row.nocode ?? row.noCode ?? '',
+          loaiChiDinh: row.loaichidinh ?? row.loaiChiDinh ?? '',
+          assignedLots: row.assignedlots ?? row.assignedLots ?? []
         })) as DeliveryNoteItem[];
+
+        // Smart Cache Merge
+        const cached = getCache<DeliveryNoteItem[]>('delivery_notes');
+        if ((!mappedData || mappedData.length === 0) && cached && cached.length > 0) {
+          console.warn('Server returned empty delivery notes, preserving local cache');
+          return cached;
+        }
+
         setCache('delivery_notes', mappedData, 30 * 24 * 3600000);
         return mappedData;
       } catch (err: any) {
@@ -463,32 +509,28 @@ export const api = {
     },
     async upsertAll(items: DeliveryNoteItem[]): Promise<void> {
       if (items.length === 0) return;
-      const payload = items.map(item => {
-        const i = {
-          ...item,
-          ovnsaleorder: item.ovnSaleOrder,
-          ovnproductionorder: item.ovnProductionOrder,
-          materialname: item.materialName,
-          qtyerp: item.qtyErp,
-          actualqty: item.actualQty,
-          lotno: item.lotNo,
-          actualissuedqty: item.actualIssuedQty,
-          customercode: item.customerCode,
-          finaldestination: item.finalDestination,
-          nocode: item.noCode
-        };
-        delete (i as any).ovnSaleOrder;
-        delete (i as any).ovnProductionOrder;
-        delete (i as any).materialName;
-        delete (i as any).qtyErp;
-        delete (i as any).actualQty;
-        delete (i as any).lotNo;
-        delete (i as any).actualIssuedQty;
-        delete (i as any).customerCode;
-        delete (i as any).finalDestination;
-        delete (i as any).noCode;
-        return i;
-      });
+      const payload = items.map(item => ({
+        id: item.id,
+        no: item.no,
+        ovnsaleorder: item.ovnSaleOrder || '',
+        ovnproductionorder: item.ovnProductionOrder || '',
+        item: item.item || '',
+        materialname: item.materialName || '',
+        unit: item.unit || '',
+        qtyerp: item.qtyErp || 0,
+        actualqty: item.actualQty || 0,
+        lotno: item.lotNo || '',
+        actualissuedqty: item.actualIssuedQty || 0,
+        remark: item.remark || '',
+        brand: item.brand || '',
+        customercode: item.customerCode || '',
+        finaldestination: item.finalDestination || '',
+        nocode: item.noCode || '',
+        location: item.location || '',
+        stock: item.stock || '',
+        loaichidinh: item.loaiChiDinh || '',
+        assignedlots: item.assignedLots || []
+      }));
       updateCacheMultiple('delivery_notes', items);
       try {
         const chunks = chunkArray(payload, 500);
@@ -541,8 +583,21 @@ export const api = {
       try {
         const { data, error } = await supabase.from('location_entries').select('*');
         if (error) throw error;
-        setCache('location_entries', data as LocationEntry[], 30 * 24 * 3600000);
-        return data as LocationEntry[];
+        
+        const mappedData = (data || []).map(row => ({
+          ...row,
+          scanType: row.scantype ?? row.scanType ?? 'INPUT'
+        })) as LocationEntry[];
+
+        // Smart Cache Merge
+        const cached = getCache<LocationEntry[]>('location_entries');
+        if ((!mappedData || mappedData.length === 0) && cached && cached.length > 0) {
+          console.warn('Server returned empty location entries, preserving local cache');
+          return cached;
+        }
+
+        setCache('location_entries', mappedData, 30 * 24 * 3600000);
+        return mappedData;
       } catch (err: any) {
         console.warn('Offline mode: using cached location entries', err.message);
         const cached = getCache<LocationEntry[]>('location_entries');
@@ -552,47 +607,46 @@ export const api = {
     },
     async upsert(entry: LocationEntry): Promise<void> {
       updateCacheSingle('location_entries', entry);
+      const payload = {
+        id: entry.id,
+        qrcode: entry.qrcode,
+        sku: entry.sku,
+        partner: entry.partner || '',
+        date: entry.date || '',
+        location: entry.location || '',
+        note: entry.note || '',
+        quantity: entry.quantity || 1,
+        type: entry.type,
+        scantype: entry.scanType || 'INPUT'
+      };
       try {
-        const { error } = await supabase.from('location_entries').upsert(entry);
+        const { error } = await supabase.from('location_entries').upsert(payload);
         if (error) throw error;
       } catch (err) {
-        console.warn('Offline mode: location entry upsert saved locally');
+        console.warn('Location entry sync failed, saved locally:', err);
       }
     },
     async upsertAll(entries: LocationEntry[]): Promise<void> {
       if (!entries.length) return;
-      const payload1 = entries.map(e => ({
+      const payload = entries.map(e => ({
         id: e.id,
         qrcode: e.qrcode,
         sku: e.sku,
-        partner: e.partner,
-        date: e.date,
-        location: e.location,
-        note: e.note,
-        quantity: e.quantity,
+        partner: e.partner || '',
+        date: e.date || '',
+        location: e.location || '',
+        note: e.note || '',
+        quantity: e.quantity || 1,
         type: e.type,
-        scanType: e.scanType,
-        created_at: e.created_at
+        scantype: e.scanType || 'INPUT'
       }));
       
       updateCacheMultiple('location_entries', entries);
       try {
-        const chunks = chunkArray(payload1, 500);
+        const chunks = chunkArray(payload, 500);
         for (const chunk of chunks) {
           const { error } = await supabase.from('location_entries').upsert(chunk);
-          
-          if (error) {
-            // Fallback for scantype (lowercase in older PostgREST schemas)
-            const payload2 = chunk.map((e: any) => ({
-              ...e,
-              scantype: e.scanType
-            }));
-            delete (payload2 as any).scanType;
-            const retry = await supabase.from('location_entries').upsert(payload2);
-            if (retry.error) {
-              throw retry.error;
-            }
-          }
+          if (error) throw error;
           await delay(50);
         }
       } catch (err) {
@@ -680,8 +734,18 @@ export const api = {
       try {
         const { data, error } = await supabase.from('saved_delivery_notes').select('*');
         if (error) throw error;
-        setCache('saved_delivery_notes', data as any[], 30 * 24 * 3600000);
-        return data as {id: string, date: string, items: DeliveryNoteItem[]}[];
+        
+        const mappedData = data as {id: string, date: string, items: DeliveryNoteItem[]}[];
+
+        // Smart Cache Merge
+        const cached = getCache<{id: string, date: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes');
+        if ((!mappedData || mappedData.length === 0) && cached && cached.length > 0) {
+          console.warn('Server returned empty saved delivery notes, preserving local cache');
+          return cached;
+        }
+
+        setCache('saved_delivery_notes', mappedData, 30 * 24 * 3600000);
+        return mappedData;
       } catch (err: any) {
         console.warn('Offline mode: using cached saved delivery notes', err.message);
         const cached = getCache<{id: string, date: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes');

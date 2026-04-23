@@ -14,26 +14,30 @@ CREATE TABLE products (
   name TEXT NOT NULL,
   category TEXT,
   unit TEXT,
-  minStock NUMERIC DEFAULT 0,
-  lotNo TEXT,
-  ghiChu TEXT,
-  designationCode TEXT,
-  loaiChiDinh TEXT,
+  minstock NUMERIC DEFAULT 0,
+  lotno TEXT,
+  ghichu TEXT,
+  designationcode TEXT,
+  loaichidinh TEXT,
+  rpro TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- 2. Create transactions table
 CREATE TABLE transactions (
   id TEXT PRIMARY KEY,
-  productId TEXT REFERENCES products(id) ON DELETE CASCADE,
+  productid TEXT REFERENCES products(id) ON DELETE CASCADE,
   type TEXT CHECK (type IN ('inbound', 'outbound')),
   quantity NUMERIC NOT NULL,
   date TEXT NOT NULL,
   partner TEXT,
-  loaiChiDinh TEXT,
-  lotNo TEXT,
-  ghiChu TEXT,
-  designationCode TEXT,
+  loaichidinh TEXT,
+  lotno TEXT,
+  ghichu TEXT,
+  designationcode TEXT,
+  rpro TEXT,
+  updatedate TEXT,
+  isdeleted BOOLEAN DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -49,22 +53,24 @@ CREATE TABLE customers (
 CREATE TABLE delivery_notes (
   id TEXT PRIMARY KEY,
   no INTEGER,
-  ovnSaleOrder TEXT,
-  ovnProductionOrder TEXT,
+  ovnsaleorder TEXT,
+  ovnproductionorder TEXT,
   item TEXT,
-  materialName TEXT,
+  materialname TEXT,
   unit TEXT,
-  qtyErp NUMERIC,
-  actualQty NUMERIC,
-  lotNo TEXT,
-  actualIssuedQty NUMERIC,
+  qtyerp NUMERIC,
+  actualqty NUMERIC,
+  lotno TEXT,
+  actualissuedqty NUMERIC,
   remark TEXT,
   brand TEXT,
-  customerCode TEXT,
-  finalDestination TEXT,
-  noCode TEXT,
+  customercode TEXT,
+  finaldestination TEXT,
+  nocode TEXT,
   location TEXT,
   stock TEXT,
+  loaichidinh TEXT,
+  assignedlots JSONB,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -79,7 +85,7 @@ CREATE TABLE location_entries (
   note TEXT,
   quantity NUMERIC DEFAULT 1,
   type TEXT CHECK (type IN ('input', 'inventory')),
-  scanType TEXT CHECK (scanType IN ('INPUT', 'OUTPUT')),
+  scantype TEXT CHECK (scantype IN ('INPUT', 'OUTPUT')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -94,9 +100,9 @@ CREATE TABLE saved_delivery_notes (
 -- 7. Create delivery_note_header table
 CREATE TABLE delivery_note_header (
   id TEXT PRIMARY KEY DEFAULT 'current',
-  docCode TEXT,
+  doccode TEXT,
   dept TEXT,
-  toName TEXT,
+  toname TEXT,
   date TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
