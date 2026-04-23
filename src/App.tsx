@@ -532,6 +532,12 @@ export default function App() {
   const determineLoaiChiDinh = (itemCode: string, prodOrder: string, saleOrder: string, noCode: string, currentLoai: string) => {
     if (currentLoai && currentLoai !== 'NORMAL') return currentLoai;
     
+    // Proactively detect designation from prefixes if current is NORMAL/empty
+    const p = (prodOrder || '').toUpperCase().trim();
+    const s = (saleOrder || '').toUpperCase().trim();
+    if (p.startsWith('RPRO-') || s.startsWith('RPRO-')) return 'RPRO';
+    if (p.startsWith('SLT-') || s.startsWith('SLT-')) return 'SLT';
+
     const match = inventory.find(inv => 
       inv.sku.toLowerCase().trim() === itemCode.toLowerCase().trim() && 
       (
@@ -544,12 +550,21 @@ export default function App() {
   };
 
   const recalculateActualQty = (notes: DeliveryNoteItem[]) => {
-    // Group by Item (SKU) and Designation Type
+    // Group by Item (SKU) and specific Designation Context
     const groups = new Map<string, DeliveryNoteItem[]>();
     notes.forEach(item => {
       // Use the existing loaiChiDinh if already set, otherwise determine it
       const loai = item.loaiChiDinh || determineLoaiChiDinh(item.item, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode, '');
-      const groupKey = `${item.item.trim().toUpperCase()}|${(loai || 'NORMAL').trim().toUpperCase()}`;
+      
+      // Use a granular grouping key (SKU + Loai + Orders) to ensure each distinct requirement is rounded
+      const groupKey = [
+        item.item.trim().toUpperCase(),
+        (loai || 'NORMAL').trim().toUpperCase(),
+        (item.ovnProductionOrder || '').trim().toUpperCase(),
+        (item.ovnSaleOrder || '').trim().toUpperCase(),
+        (item.noCode || '').trim().toUpperCase()
+      ].join('|');
+
       if (!groups.has(groupKey)) groups.set(groupKey, []);
       groups.get(groupKey)!.push(item);
     });
