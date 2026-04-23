@@ -1763,8 +1763,36 @@ export default function App() {
         setLocationEntries(prev => prev.filter(e => e.id !== id));
         setLocationInventoryEntries(prev => prev.filter(e => e.id !== id));
       }
-    } else if (type === 'savedDeliveryNote') {
-      setSavedDeliveryNotes(prev => prev.filter(n => n.id !== id));
+    } else if (type === 'inventory_batch') {
+      const batch = inventory.find(i => i.id === id);
+      if (batch) {
+        if (id.endsWith('-empty')) {
+          setProducts(prev => prev.filter(p => p.id !== batch.productId));
+          setTransactions(prev => prev.filter(t => t.productId !== batch.productId));
+        } else {
+          const transactionIds = transactions
+            .filter(t => 
+              t.productId === batch.productId && 
+              (t.lotNo || '') === (batch.lotNo || '') && 
+              (t.designationCode || '') === (batch.designationCode || '')
+            )
+            .map(t => t.id);
+          
+          if (transactionIds.length > 0) {
+            setTransactions(prev => prev.filter(t => !transactionIds.includes(t.id)));
+          }
+
+          // Check if this was the last activity for this product
+          const remainingTxForProduct = transactions.filter(t => 
+            t.productId === batch.productId && !transactionIds.includes(t.id)
+          );
+
+          if (remainingTxForProduct.length === 0) {
+            // Remove the product as well so it doesn't show up as an "empty" row
+            setProducts(prev => prev.filter(p => p.id !== batch.productId));
+          }
+        }
+      }
     }
 
     try {
@@ -1791,21 +1819,26 @@ export default function App() {
         const batch = inventory.find(i => i.id === id);
         if (batch) {
           if (id.endsWith('-empty')) {
-            setProducts(prev => prev.filter(p => p.id !== batch.productId));
             await api.transactions.deleteByProductId(batch.productId);
             await api.products.delete(batch.productId);
           } else {
-            const transactionIds = transactions
-              .filter(t => 
-                t.productId === batch.productId && 
-                (t.lotNo || '') === (batch.lotNo || '') && 
-                (t.designationCode || '') === (batch.designationCode || '')
-              )
-              .map(t => t.id);
+            const batchTransactions = transactions.filter(t => 
+              t.productId === batch.productId && 
+              (t.lotNo || '') === (batch.lotNo || '') && 
+              (t.designationCode || '') === (batch.designationCode || '')
+            );
+            const transactionIds = batchTransactions.map(t => t.id);
             
             if (transactionIds.length > 0) {
-              setTransactions(prev => prev.filter(t => !transactionIds.includes(t.id)));
               await api.transactions.deleteMany(transactionIds);
+            }
+
+            // Check if product should be deleted from DB too (if no more transactions exist)
+            const remainingTxInDb = transactions.filter(t => 
+              t.productId === batch.productId && !transactionIds.includes(t.id)
+            );
+            if (remainingTxInDb.length === 0) {
+              await api.products.delete(batch.productId);
             }
           }
         }
@@ -1834,12 +1867,11 @@ export default function App() {
       }
 
       const transactionIdsToDelete: string[] = [];
-      const productIdsToDelete = new Set<string>();
+      const productIdsPotentialDelete = new Set<string>();
 
       batchesToDelete.forEach(b => {
-        if (b.id.endsWith('-empty')) {
-          productIdsToDelete.add(b.productId);
-        } else {
+        productIdsPotentialDelete.add(b.productId);
+        if (!b.id.endsWith('-empty')) {
           const matchingTransactions = transactions.filter(t => 
             t.productId === b.productId && 
             (t.lotNo || '') === (b.lotNo || '') && 
@@ -1849,23 +1881,29 @@ export default function App() {
         }
       });
 
-      setTransactions(prev => {
-        let filtered = prev.filter(t => !transactionIdsToDelete.includes(t.id));
-        if (productIdsToDelete.size > 0) {
-          filtered = filtered.filter(t => !productIdsToDelete.has(t.productId));
+      // Determine which products will have zero transactions left after this bulk delete
+      const productIdsToActuallyDelete = new Set<string>();
+      productIdsPotentialDelete.forEach(pid => {
+        const remainingForThisProduct = transactions.filter(t => 
+          t.productId === pid && !transactionIdsToDelete.includes(t.id)
+        );
+        if (remainingForThisProduct.length === 0) {
+          productIdsToActuallyDelete.add(pid);
         }
-        return filtered;
       });
-      if (productIdsToDelete.size > 0) {
-        setProducts(prev => prev.filter(p => !productIdsToDelete.has(p.id)));
+
+      // Update state
+      setTransactions(prev => prev.filter(t => !transactionIdsToDelete.includes(t.id)));
+      if (productIdsToActuallyDelete.size > 0) {
+        setProducts(prev => prev.filter(p => !productIdsToActuallyDelete.has(p.id)));
       }
       
       try {
         if (transactionIdsToDelete.length > 0) {
           await api.transactions.deleteMany(transactionIdsToDelete);
         }
-        if (productIdsToDelete.size > 0) {
-          const productIdsArray = Array.from(productIdsToDelete);
+        if (productIdsToActuallyDelete.size > 0) {
+          const productIdsArray = Array.from(productIdsToActuallyDelete);
           await api.transactions.deleteByProductIds(productIdsArray);
           await api.products.deleteMany(productIdsArray);
         }
