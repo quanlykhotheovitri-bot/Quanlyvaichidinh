@@ -1903,6 +1903,8 @@ export default function App() {
         setLocationEntries(prev => prev.filter(e => e.id !== id));
         setLocationInventoryEntries(prev => prev.filter(e => e.id !== id));
       }
+    } else if (type === 'savedDeliveryNote') {
+      setSavedDeliveryNotes(prev => prev.filter(n => n.id !== id));
     } else if (type === 'inventory_batch') {
       const batch = inventory.find(i => i.id === id);
       if (batch) {
