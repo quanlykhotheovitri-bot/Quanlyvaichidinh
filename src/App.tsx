@@ -674,11 +674,14 @@ export default function App() {
             if (restrictionError) {
               restrictedItems.push(`Dòng ${item.no}: Lot ${lot.lotNo} - ${restrictionError}`);
             } else {
+              // Ensure transaction quantity is rounded exactly as seen on the Delivery Note
+              const cleanedQty = Number(lot.qty.toFixed(4));
+                
               newTransactions.push({
                 id: generateId(),
                 productId: product.id,
                 type: 'outbound',
-                quantity: lot.qty,
+                quantity: cleanedQty,
                 date: today,
                 partner: item.customerCode || item.noCode || 'Unknown',
                 lotNo: lot.lotNo,
@@ -713,11 +716,14 @@ export default function App() {
             if (restrictionError) {
               restrictedItems.push(`Dòng ${item.no}: Lot ${lotName} - ${restrictionError}`);
             } else {
+              // Ensure transaction quantity is rounded/cleaned to match Delivery Note standards
+              const cleanedQty = Number(qtyPerLot.toFixed(4));
+
               newTransactions.push({
                 id: generateId(),
                 productId: product.id,
                 type: 'outbound',
-                quantity: qtyPerLot,
+                quantity: cleanedQty,
                 date: today,
                 partner: item.customerCode || item.noCode || 'Unknown',
                 lotNo: lotName,
@@ -2463,11 +2469,13 @@ export default function App() {
 
         let allocation = Math.min(available, remainingNeeded);
         
-        // Fix for Row 23: for designated RPRO/SLT, allow over-assignment to reach the target integer if the gap is small (rounding residue)
-        const isDesignated = (item.loaiChiDinh && item.loaiChiDinh !== 'NORMAL');
-        if (isDesignated && remainingNeeded > available && (remainingNeeded - available) < 1) {
+        // Fix for Row 23 & NORMAL items: allow over-assignment to reach the target integer if the gap is small (rounding residue)
+        if (remainingNeeded > available && (remainingNeeded - available) < 1) {
           allocation = remainingNeeded;
         }
+
+        // Normalize allocation to avoid floating point noise from inventory calculation
+        allocation = Number(allocation.toFixed(4));
 
         if (match.tempStock !== undefined) {
           match.tempStock -= allocation;
