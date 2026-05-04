@@ -683,6 +683,7 @@ export default function App() {
                 type: 'outbound',
                 quantity: cleanedQty,
                 date: today,
+                updateDate: today,
                 partner: item.customerCode || item.noCode || 'Unknown',
                 lotNo: lot.lotNo,
                 ghiChu: 'Xuất từ Phiếu giao nhận',
@@ -725,6 +726,7 @@ export default function App() {
                 type: 'outbound',
                 quantity: cleanedQty,
                 date: today,
+                updateDate: today,
                 partner: item.customerCode || item.noCode || 'Unknown',
                 lotNo: lotName,
                 ghiChu: 'Xuất từ Phiếu giao nhận',
@@ -1552,15 +1554,17 @@ export default function App() {
   const handleAddTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     let updatedTransaction: Transaction;
+    const today = format(new Date(), 'dd/MM/yyyy');
     if (editingId) {
-      updatedTransaction = { ...newTransaction, id: editingId } as Transaction;
+      updatedTransaction = { ...newTransaction, id: editingId, updateDate: today } as Transaction;
       setTransactions(transactions.map(t => t.id === editingId ? updatedTransaction : t));
       setEditingId(null);
     } else {
       updatedTransaction = {
         ...newTransaction as Transaction,
         id: generateId(),
-        type: activeTab === 'inbound' ? 'inbound' : 'outbound'
+        type: activeTab === 'inbound' ? 'inbound' : 'outbound',
+        updateDate: today
       };
       setTransactions([...transactions, updatedTransaction]);
     }
