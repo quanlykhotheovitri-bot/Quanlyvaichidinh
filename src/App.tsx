@@ -2347,10 +2347,16 @@ export default function App() {
     const normalizedLotDate = normalizeDateForMatching(lotNo || '');
     const rawLot = (lotNo || '').trim();
     
-    const matches = locationInventoryEntries.filter(e => {
+    // Find all entries for this SKU
+    const skuMatches = locationInventoryEntries.filter(e => {
       const entrySku = (e.sku || '').toLowerCase().trim();
-      if (entrySku !== skuLower) return false;
+      return entrySku === skuLower;
+    });
 
+    if (skuMatches.length === 0) return 'Chưa có vị trí';
+
+    // Priority 1: Pick entries where date matches
+    const dateMatches = skuMatches.filter(e => {
       const entryDate = (e.date || '').trim();
       const normalizedEntryDate = normalizeDateForMatching(entryDate);
 
@@ -2359,12 +2365,19 @@ export default function App() {
              normalizedEntryDate === rawLot || 
              normalizedEntryDate === normalizedLotDate;
     });
-    
-    if (matches.length === 0) return 'Chưa có vị trí';
 
-    // Aggregate unique locations
-    const locations = Array.from(new Set(matches.map(m => m.location).filter(Boolean)));
-    return locations.length > 0 ? locations.join(', ') : 'Chưa có vị trí';
+    if (dateMatches.length > 0) {
+      const locations = Array.from(new Set(dateMatches.map(m => m.location).filter(Boolean)));
+      return locations.length > 0 ? locations.join(', ') : 'Chưa có vị trí';
+    }
+
+    // Priority 2: Pick entries for same SKU but different/empty date (Vải lẻ)
+    const locations = Array.from(new Set(skuMatches.map(m => m.location).filter(Boolean)));
+    if (locations.length > 0) {
+      return locations.join(', ') + ' (Vải lẻ)';
+    }
+
+    return 'Chưa có vị trí';
   }, [locationInventoryEntries, normalizeDateForMatching]);
 
   const filteredInventory = useMemo(() => {
