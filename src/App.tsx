@@ -269,16 +269,21 @@ export default function App() {
     const note = (batch.ghiChu || '').toUpperCase();
     const designation = (batch.designationCode || '').toUpperCase();
     const combined = note + ' ' + designation;
+    const saleOrder = (orderContext.saleOrder || '').toUpperCase();
     
-    if (combined.includes('KEEP')) return 'Mã hàng đang được đặt trạng thái "Keep", không được phép xuất kho.';
-    if (combined.includes('RMW')) return 'Mã hàng đang được đặt trạng thái "RMW", không được phép xuất kho.';
-    if (combined.includes('SLT')) {
-       const saleOrder = (orderContext.saleOrder || '').toUpperCase();
+    const specialMarkers = ['SLT', 'RMW', 'KEEP'];
+    const hasSpecialMarker = specialMarkers.some(marker => combined.includes(marker));
+    
+    if (hasSpecialMarker) {
        const loaiChiDinh = (orderContext.loaiChiDinh || '').toUpperCase();
-       if (!saleOrder.includes('SLT') && !loaiChiDinh.includes('SLT')) {
-          return 'Mã hàng trạng thái "SLT" chỉ được phép xuất cho các đơn hàng SLT.';
+       const isAllowedOrder = specialMarkers.some(marker => saleOrder.startsWith(marker));
+       const isAllowedDesignation = specialMarkers.some(marker => loaiChiDinh.startsWith(marker));
+
+       if (!isAllowedOrder && !isAllowedDesignation) {
+          return 'Lô hàng có ghi chú đặc biệt (SLT/RMW/KEEP) chỉ được phép xuất cho các đơn hàng có đầu mã tương ứng (SLT, RMW, KEEP).';
        }
     }
+    
     return null;
   }, []);
 
