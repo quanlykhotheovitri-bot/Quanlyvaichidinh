@@ -120,7 +120,7 @@ export default function App() {
   }, []);
 
   const [newProduct, setNewProduct] = useState<Partial<Product> & { quantity?: number }>({
-    sku: '', name: '', category: '', unit: '', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: '', quantity: 0
+    sku: '', name: '', category: '', unit: 'YDS', minStock: 0, lotNo: '', ghiChu: '', designationCode: '', loaiChiDinh: '', quantity: 0
   });
   const [newTransaction, setNewTransaction] = useState<Partial<Transaction>>({
     productId: '', type: 'inbound', quantity: 0, date: format(new Date(), 'dd/MM/yyyy'), updateDate: format(new Date(), 'dd/MM/yyyy'), partner: '', loaiChiDinh: '', lotNo: '', ghiChu: '', designationCode: ''
@@ -5206,7 +5206,7 @@ export default function App() {
                       onChange={e => {
                         const sku = e.target.value;
                         if (!sku.trim()) {
-                          setNewProduct({ ...newProduct, sku, name: '', unit: '' });
+                          setNewProduct({ ...newProduct, sku, name: '', unit: 'YDS' });
                           return;
                         }
                         // Find matching product in existing products or inventory (case-insensitive)
@@ -5218,16 +5218,15 @@ export default function App() {
                             ...newProduct,
                             sku,
                             name: match.name,
-                            unit: match.unit
+                            unit: match.unit || 'YDS'
                           });
                         } else {
-                          // For new SKU, clear name but auto-fill unit from existing items if possible
-                          const defaultUnit = products.find(p => p.unit)?.unit || inventory.find(i => i.unit)?.unit || 'YDS';
+                          // For new SKU, clear name and default unit to YDS
                           setNewProduct({
                             ...newProduct,
                             sku,
                             name: '',
-                            unit: defaultUnit
+                            unit: 'YDS'
                           });
                         }
                       }}
