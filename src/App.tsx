@@ -274,6 +274,7 @@ export default function App() {
     const specialMarkers = ['SLT', 'RMW', 'KEEP'];
     const hasSpecialMarker = specialMarkers.some(marker => combined.includes(marker));
     
+    // Rule: Don't allow special marker lots to be exported to non-matching orders
     if (hasSpecialMarker) {
        const loaiChiDinh = (orderContext.loaiChiDinh || '').toUpperCase();
        const isAllowedOrder = specialMarkers.some(marker => saleOrder.startsWith(marker));
@@ -282,6 +283,11 @@ export default function App() {
        if (!isAllowedOrder && !isAllowedDesignation) {
           return 'Lô hàng có ghi chú đặc biệt (SLT/RMW/KEEP) chỉ được phép xuất cho các đơn hàng có đầu mã tương ứng (SLT, RMW, KEEP).';
        }
+    }
+
+    // Rule: SLT orders ONLY take SLT lots (as requested)
+    if (saleOrder.startsWith('SLT') && !note.includes('SLT')) {
+      return 'Đơn hàng SLT chỉ được phép xuất các lô hàng có ghi chú SLT trong tồn kho.';
     }
     
     return null;
@@ -1534,7 +1540,7 @@ export default function App() {
           date: format(new Date(), 'dd/MM/yyyy'),
           partner: 'Khởi tạo tồn kho',
           lotNo: newProduct.lotNo || '',
-          ghiChu: newProduct.ghiChu || 'Số lượng ban đầu khi tạo sản phẩm',
+          ghiChu: newProduct.ghiChu?.trim() || 'Số lượng ban đầu khi tạo sản phẩm',
           designationCode: newProduct.designationCode || '',
           loaiChiDinh: newProduct.loaiChiDinh || ''
         };
@@ -2376,7 +2382,16 @@ export default function App() {
       return locations.length > 0 ? locations.join(', ') : 'Chưa có vị trí';
     }
 
-    // Priority 2: Pick entries for same SKU but different/empty date (Vải lẻ)
+    // Priority 2: Pick entries for same SKU but empty date (Vải lẻ) - as requested
+    const emptyDateMatches = skuMatches.filter(e => !(e.date || '').trim());
+    if (emptyDateMatches.length > 0) {
+      const locations = Array.from(new Set(emptyDateMatches.map(m => m.location).filter(Boolean)));
+      if (locations.length > 0) {
+        return locations.join(', ') + ' (Vải lẻ)';
+      }
+    }
+
+    // Priority 3: Last resort - any location for this SKU
     const locations = Array.from(new Set(skuMatches.map(m => m.location).filter(Boolean)));
     if (locations.length > 0) {
       return locations.join(', ') + ' (Vải lẻ)';
