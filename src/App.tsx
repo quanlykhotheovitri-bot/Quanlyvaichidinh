@@ -1534,7 +1534,7 @@ export default function App() {
           date: format(new Date(), 'dd/MM/yyyy'),
           partner: 'Khởi tạo tồn kho',
           lotNo: newProduct.lotNo || '',
-          ghiChu: 'Số lượng ban đầu khi tạo sản phẩm',
+          ghiChu: newProduct.ghiChu || 'Số lượng ban đầu khi tạo sản phẩm',
           designationCode: newProduct.designationCode || '',
           loaiChiDinh: newProduct.loaiChiDinh || ''
         };
