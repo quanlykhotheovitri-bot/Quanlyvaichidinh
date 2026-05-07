@@ -5218,7 +5218,7 @@ export default function App() {
                             ...newProduct,
                             sku,
                             name: match.name,
-                            unit: match.unit || 'YDS'
+                            unit: (match.unit === 'Cái' || !match.unit) ? 'YDS' : match.unit
                           });
                         } else {
                           // For new SKU, clear name and default unit to YDS
