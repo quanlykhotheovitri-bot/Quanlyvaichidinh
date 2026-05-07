@@ -5203,7 +5203,34 @@ export default function App() {
                       required
                       className="w-full bg-transparent border-b border-[#141414] py-1 text-sm outline-none"
                       value={newProduct.sku}
-                      onChange={e => setNewProduct({...newProduct, sku: e.target.value})}
+                      onChange={e => {
+                        const sku = e.target.value;
+                        if (!sku.trim()) {
+                          setNewProduct({ ...newProduct, sku, name: '', unit: '' });
+                          return;
+                        }
+                        // Find matching product in existing products or inventory (case-insensitive)
+                        const match = products.find(p => p.sku.trim().toUpperCase() === sku.trim().toUpperCase()) || 
+                                     inventory.find(i => i.sku.trim().toUpperCase() === sku.trim().toUpperCase());
+                        
+                        if (match) {
+                          setNewProduct({
+                            ...newProduct,
+                            sku,
+                            name: match.name,
+                            unit: match.unit
+                          });
+                        } else {
+                          // For new SKU, clear name but auto-fill unit from existing items if possible
+                          const defaultUnit = products.find(p => p.unit)?.unit || inventory.find(i => i.unit)?.unit || 'YDS';
+                          setNewProduct({
+                            ...newProduct,
+                            sku,
+                            name: '',
+                            unit: defaultUnit
+                          });
+                        }
+                      }}
                     />
                   </div>
                   <div className="space-y-1">
