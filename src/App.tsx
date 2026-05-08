@@ -286,16 +286,17 @@ export default function App() {
     }
 
     // Rule: SLT orders ONLY take SLT lots (as requested)
-    if (saleOrder.startsWith('SLT') && !note.includes('SLT')) {
+    if (saleOrder.startsWith('SLT') && !combined.includes('SLT')) {
       return 'Đơn hàng SLT chỉ được phép xuất các lô hàng có ghi chú SLT trong tồn kho.';
     }
     
     return null;
   }, []);
 
-  const findAssignedFabricLot = useCallback((issueRow: { sku: string, rpro: string, no: string, ovnSaleOrder?: string }, inventoryRows: InventoryItem[]) => {
+  const findAssignedFabricLot = useCallback((issueRow: { sku: string, rpro: string, no: string, ovnSaleOrder?: string, loaiChiDinh?: string }, inventoryRows: InventoryItem[]) => {
     const sku = issueRow.sku.toLowerCase().trim();
     const ovnSaleOrder = (issueRow.ovnSaleOrder || '').toUpperCase();
+    const currentLoai = (issueRow.loaiChiDinh || '').toUpperCase();
     
     // Priority 1
     let matches = resolveByPriority1(sku, issueRow.rpro, inventoryRows);
@@ -320,7 +321,7 @@ export default function App() {
       
       const restrictionError = checkOutboundRestriction(
         { ghiChu: note, designationCode: designation },
-        { saleOrder: ovnSaleOrder }
+        { saleOrder: ovnSaleOrder, loaiChiDinh: currentLoai }
       );
       
       if (restrictionError) return false;
@@ -2478,7 +2479,8 @@ export default function App() {
           sku: item.item, 
           rpro: item.ovnProductionOrder, 
           no: item.noCode,
-          ovnSaleOrder: item.ovnSaleOrder
+          ovnSaleOrder: item.ovnSaleOrder,
+          loaiChiDinh: item.loaiChiDinh
         },
         workingInventory
       );
@@ -2542,10 +2544,10 @@ export default function App() {
       return {
         ...item,
         assignedLots,
-        lotNo: assignedLots.map(l => l.lotNo).join(', '),
+        lotNo: assignedLots.filter(l => l.qty > 0).map(l => l.lotNo).join(', '),
         // Keep actualQty as the rounded target, update actualIssuedQty with assigned amount
         actualIssuedQty: totalQty,
-        location: assignedLots.map(l => l.location).join(', '),
+        location: assignedLots.filter(l => l.qty > 0).map(l => l.location).join(', '),
         stock: remainingNeeded > 0 ? `Thiếu ${remainingNeeded.toLocaleString()}` : `Đã gán ${assignedLots.length} Lot`
       };
     });
