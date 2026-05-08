@@ -270,21 +270,23 @@ export default function App() {
     
     const saleOrder = (orderContext.saleOrder || '').trim().toUpperCase();
     const prodOrder = (orderContext.prodOrder || '').trim().toUpperCase();
+    const orderLoai = (orderContext.loaiChiDinh || '').trim().toUpperCase();
     
     const specialMarkers = ['SLT', 'RMW', 'KEEP'];
     const activeMarkers = specialMarkers.filter(marker => combined.includes(marker));
     
+    // Specific check for markers in combined string (note, designation, loai)
+    const hasMarker = (m: string) => combined.includes(m);
+
     // Rule: Don't allow special marker lots to be exported to non-matching orders
     if (activeMarkers.length > 0) {
-       // Requirement: If lot has SLT marker, Sale Order MUST start with SLT
+       // Requirement: If lot has SLT marker, Sale Order MUST start with SLT OR Loai Chi Dinh is SLT
        if (activeMarkers.includes('SLT')) {
-          if (!saleOrder.startsWith('SLT')) {
-             return 'Lô hàng có ghi chú SLT chỉ được phép xuất cho các đơn hàng bắt đầu bằng mã SLT.';
+          if (!saleOrder.startsWith('SLT') && orderLoai !== 'SLT') {
+             return 'Lô hàng có ghi chú SLT chỉ được phép xuất cho các đơn hàng SLT.';
           }
        }
 
-       const orderLoai = (orderContext.loaiChiDinh || '').toUpperCase();
-       
        // For other markers (RMW, KEEP), we allow matching by sale order prefix, loai chi dinh prefix or explicit ID
        const otherMarkers = activeMarkers.filter(m => m !== 'SLT');
        if (otherMarkers.length > 0) {
@@ -299,12 +301,12 @@ export default function App() {
     }
 
     // Rule: SLT orders ONLY take SLT lots (as requested)
-    if (saleOrder.startsWith('SLT')) {
-      const hasSLTMarker = combined.includes('SLT');
+    if (saleOrder.startsWith('SLT') || orderLoai === 'SLT') {
+      const hasSLTMarker = hasMarker('SLT');
       const isExplicitMatch = (saleOrder && combined.includes(saleOrder)) || (prodOrder && combined.includes(prodOrder));
       
       if (!hasSLTMarker && !isExplicitMatch) {
-         return 'Đơn hàng SLT chỉ được phép xuất các lô hàng có ghi chú SLT hoặc được chỉ định đích danh cho đơn hàng này.';
+         return 'Đơn hàng SLT chỉ được phép xuất các lô hàng có ghi chú SLT hoặc được chỉ định đích danh.';
       }
     }
     
@@ -313,50 +315,54 @@ export default function App() {
 
   const findAssignedFabricLot = useCallback((issueRow: { sku: string, rpro: string, no: string, ovnSaleOrder?: string, loaiChiDinh?: string }, inventoryRows: InventoryItem[]) => {
     const sku = issueRow.sku.toLowerCase().trim();
-    const ovnSaleOrder = (issueRow.ovnSaleOrder || '').toUpperCase();
-    const currentLoai = (issueRow.loaiChiDinh || '').toUpperCase();
-    
-    // Priority 1
-    let matches = resolveByPriority1(sku, issueRow.rpro, inventoryRows);
-    
-    // Priority 2
-    if (matches.length === 0) {
-      matches = resolveByPriority2(sku, issueRow.no, inventoryRows);
-    }
-    
-    // Priority 3
-    if (matches.length === 0) {
-      matches = resolveByPriority3(sku, inventoryRows);
-    }
-    
-    // Filter by stock > 0 and business rules
-    matches = matches.filter(m => {
-      const stock = (m.tempStock !== undefined ? m.tempStock : m.currentStock);
-      if (stock <= 0) return false;
+    const ovnSaleOrder = (issueRow.ovnSaleOrder || '').trim().toUpperCase();
+    const currentLoai = (issueRow.loaiChiDinh || '').trim().toUpperCase();
+    const currentProdOrder = (issueRow.rpro || '').trim().toUpperCase();
 
-      const designation = (m.designationCode || '').toUpperCase();
-      const note = (m.ghiChu || '').toUpperCase();
-      
-      const restrictionError = checkOutboundRestriction(
-        { ghiChu: note, designationCode: designation, loaiChiDinh: (m.loaiChiDinh || '').toUpperCase() },
-        { saleOrder: ovnSaleOrder, loaiChiDinh: currentLoai, prodOrder: (issueRow.rpro || '').toUpperCase() }
-      );
-      
-      if (restrictionError) return false;
-      
-      return true;
-    });
+    const applyFilterAndSort = (unfilteredMatches: InventoryItem[]) => {
+      const filtered = unfilteredMatches.filter(m => {
+        const stock = (m.tempStock !== undefined ? m.tempStock : m.currentStock);
+        if (stock <= 0) return false;
+
+        const designation = (m.designationCode || '').toUpperCase();
+        const note = (m.ghiChu || '').toUpperCase();
+        const lotLoai = (m.loaiChiDinh || '').toUpperCase();
+        
+        const restrictionError = checkOutboundRestriction(
+          { ghiChu: note, designationCode: designation, loaiChiDinh: lotLoai },
+          { saleOrder: ovnSaleOrder, loaiChiDinh: currentLoai, prodOrder: currentProdOrder }
+        );
+        
+        return !restrictionError;
+      });
+
+      if (filtered.length === 0) return [];
+
+      // Sort FIFO
+      filtered.sort((a, b) => {
+        const dateA = a.inboundDate || 9999999999999;
+        const dateB = b.inboundDate || 9999999999999;
+        if (dateA !== dateB) return dateA - dateB;
+        return a.id.localeCompare(b.id);
+      });
+
+      return filtered;
+    };
     
-    // Sort FIFO: 1) inboundDate, 2) ID
-    matches.sort((a, b) => {
-      const dateA = a.inboundDate || 9999999999999;
-      const dateB = b.inboundDate || 9999999999999;
-      if (dateA !== dateB) return dateA - dateB;
-      return a.id.localeCompare(b.id);
-    });
+    // Try Priority 1 (RPRO)
+    let matches = resolveByPriority1(sku, issueRow.rpro, inventoryRows);
+    let validMatches = applyFilterAndSort(matches);
+    if (validMatches.length > 0) return validMatches;
     
-    return matches;
-  }, [resolveByPriority1, resolveByPriority2, resolveByPriority3]);
+    // Try Priority 2 (NO Code)
+    matches = resolveByPriority2(sku, issueRow.no, inventoryRows);
+    validMatches = applyFilterAndSort(matches);
+    if (validMatches.length > 0) return validMatches;
+    
+    // Try Priority 3 (SKU only)
+    matches = resolveByPriority3(sku, inventoryRows);
+    return applyFilterAndSort(matches);
+  }, [resolveByPriority1, resolveByPriority2, resolveByPriority3, checkOutboundRestriction]);
 
   React.useEffect(() => {
     setSelectedRows([]);
@@ -4466,9 +4472,20 @@ export default function App() {
                               const targetSo = (saleOrder || '').replace(/\s+/g, '').toLowerCase();
                               const targetNo = (noCode || '').replace(/\s+/g, '').toLowerCase();
                               
-                              return (targetRpro && codes.includes(targetRpro)) || 
+                              const explicitMatch = (targetRpro && codes.includes(targetRpro)) || 
                                      (targetSo && codes.includes(targetSo)) || 
                                      (targetNo && codes.includes(targetNo));
+
+                              if (explicitMatch) return true;
+
+                              // Special keywords like SLT, RMW, KEEP
+                              const markers = ['slt', 'rmw', 'keep'];
+                              const activeMarkers = markers.filter(m => codes.includes(m));
+                              if (activeMarkers.length > 0) {
+                                return activeMarkers.some(m => targetSo.startsWith(m));
+                              }
+                              
+                              return false;
                             };
 
                             const hasMismatch = !isDesignationMatch(item.remark, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode);
