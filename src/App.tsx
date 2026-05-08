@@ -580,10 +580,12 @@ export default function App() {
   };
 
   const recalculateActualQty = (notes: DeliveryNoteItem[]) => {
-    // Group by Item (SKU) only to ensure all items for same SKU are rounded together
+    const isSLT = (so: string) => (so || '').toUpperCase().startsWith('SLT');
+    
+    // Group by Item (SKU) AND SLT status to ensure SLT and non-SLT orders are grouped separately
     const groups = new Map<string, DeliveryNoteItem[]>();
     notes.forEach(item => {
-      const groupKey = item.item.trim().toUpperCase();
+      const groupKey = `${item.item.trim().toUpperCase()}|${isSLT(item.ovnSaleOrder) ? 'SLT' : 'OTHER'}`;
       if (!groups.has(groupKey)) groups.set(groupKey, []);
       groups.get(groupKey)!.push(item);
     });
@@ -4437,13 +4439,19 @@ export default function App() {
                           </tr>
                         ) : (
                           filteredDeliveryNotes.map((item, index) => {
+                             const isSLT = (so: string) => (so || '').toUpperCase().startsWith('SLT');
+                             const currentIsSLT = isSLT(item.ovnSaleOrder);
+
                              const isFirstInItemGroup = index === 0 || 
-                               (filteredDeliveryNotes[index - 1].item || '').trim().toUpperCase() !== (item.item || '').trim().toUpperCase();
+                               (filteredDeliveryNotes[index - 1].item || '').trim().toUpperCase() !== (item.item || '').trim().toUpperCase() ||
+                               isSLT(filteredDeliveryNotes[index - 1].ovnSaleOrder) !== currentIsSLT;
+
                              let itemGroupSize = 0;
                              if (isFirstInItemGroup) {
                                for (let i = index; i < filteredDeliveryNotes.length; i++) {
                                  if (
-                                   (filteredDeliveryNotes[i].item || '').trim().toUpperCase() === (item.item || '').trim().toUpperCase()
+                                   (filteredDeliveryNotes[i].item || '').trim().toUpperCase() === (item.item || '').trim().toUpperCase() &&
+                                   isSLT(filteredDeliveryNotes[i].ovnSaleOrder) === currentIsSLT
                                  ) {
                                    itemGroupSize++;
                                  } else {
