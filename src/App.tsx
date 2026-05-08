@@ -560,7 +560,8 @@ export default function App() {
     notes.forEach(item => {
       // Use the existing loaiChiDinh if already set, otherwise determine it
       const loai = item.loaiChiDinh || determineLoaiChiDinh(item.item, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode, '');
-      const groupKey = `${item.item.trim().toUpperCase()}|${(loai || 'NORMAL').trim().toUpperCase()}`;
+      const isSLTOrder = (item.ovnSaleOrder || '').toUpperCase().startsWith('SLT');
+      const groupKey = `${item.item.trim().toUpperCase()}|${(loai || 'NORMAL').trim().toUpperCase()}|${isSLTOrder ? 'SLT' : 'NORMAL'}`;
       if (!groups.has(groupKey)) groups.set(groupKey, []);
       groups.get(groupKey)!.push(item);
     });
@@ -3411,6 +3412,12 @@ export default function App() {
       no: index + 1
     })).sort((a, b) => {
       if (a.item !== b.item) return a.item.localeCompare(b.item);
+      
+      const aIsSLT = (a.ovnSaleOrder || '').toUpperCase().startsWith('SLT');
+      const bIsSLT = (b.ovnSaleOrder || '').toUpperCase().startsWith('SLT');
+      
+      if (aIsSLT !== bIsSLT) return aIsSLT ? -1 : 1;
+      
       return (a.loaiChiDinh || 'NORMAL').localeCompare(b.loaiChiDinh || 'NORMAL');
     }));
 
@@ -4423,20 +4430,28 @@ export default function App() {
 
                             const hasMismatch = !isDesignationMatch(item.remark, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode);
 
-                            // RowSpan logic: Group by ITEM and loaiChiDinh
-                            const isFirstInItemGroup = index === 0 || 
-                              filteredDeliveryNotes[index - 1].item !== item.item || 
-                              filteredDeliveryNotes[index - 1].loaiChiDinh !== item.loaiChiDinh;
-                            let itemGroupSize = 0;
-                            if (isFirstInItemGroup) {
-                              for (let i = index; i < filteredDeliveryNotes.length; i++) {
-                                if (filteredDeliveryNotes[i].item === item.item && filteredDeliveryNotes[i].loaiChiDinh === item.loaiChiDinh) {
-                                  itemGroupSize++;
-                                } else {
-                                  break;
-                                }
-                              }
-                            }
+                            // RowSpan logic: Group by ITEM, loaiChiDinh and SLT-ness
+                             const isSLT = (so: string) => (so || '').toUpperCase().startsWith('SLT');
+                             const currentIsSLT = isSLT(item.ovnSaleOrder);
+
+                             const isFirstInItemGroup = index === 0 || 
+                               filteredDeliveryNotes[index - 1].item !== item.item || 
+                               filteredDeliveryNotes[index - 1].loaiChiDinh !== item.loaiChiDinh ||
+                               isSLT(filteredDeliveryNotes[index - 1].ovnSaleOrder) !== currentIsSLT;
+                             let itemGroupSize = 0;
+                             if (isFirstInItemGroup) {
+                               for (let i = index; i < filteredDeliveryNotes.length; i++) {
+                                 if (
+                                   filteredDeliveryNotes[i].item === item.item && 
+                                   filteredDeliveryNotes[i].loaiChiDinh === item.loaiChiDinh &&
+                                   isSLT(filteredDeliveryNotes[i].ovnSaleOrder) === currentIsSLT
+                                 ) {
+                                   itemGroupSize++;
+                                 } else {
+                                   break;
+                                 }
+                               }
+                             }
 
                             // Aggregate lots for the group
                             const getGroupedLots = (itemCode: string, startIndex: number, size: number) => {
@@ -4446,6 +4461,7 @@ export default function App() {
                               groupItems.forEach(gi => {
                                 if (gi.assignedLots) {
                                   gi.assignedLots.forEach(lot => {
+                                    if (lot.qty <= 0) return;
                                     const existing = allLots.find(l => l.lotNo === lot.lotNo);
                                     if (existing) {
                                       existing.qty += lot.qty;
@@ -4579,7 +4595,7 @@ export default function App() {
                                 <td className="border border-[#141414] p-2">
                                   {item.assignedLots && item.assignedLots.length > 0 ? (
                                     <div className="flex flex-col gap-1">
-                                      {item.assignedLots.map((lot, idx) => (
+                                      {item.assignedLots.filter(l => l.qty > 0).map((lot, idx) => (
                                         <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
                                           {getLocationByItemAndLot(item.item, lot.lotNo)}
                                         </div>
