@@ -562,6 +562,12 @@ export default function App() {
   const determineLoaiChiDinh = (itemCode: string, prodOrder: string, saleOrder: string, noCode: string, currentLoai: string) => {
     if (currentLoai && currentLoai !== 'NORMAL') return currentLoai;
     
+    // Default by Sale Order Prefix
+    const upSO = (saleOrder || '').toUpperCase().trim();
+    if (upSO.startsWith('SLT')) return 'SLT';
+    if (upSO.startsWith('RMW')) return 'RMW';
+    if (upSO.startsWith('KEEP')) return 'KEEP';
+
     const match = inventory.find(inv => 
       inv.sku.toLowerCase().trim() === itemCode.toLowerCase().trim() && 
       (
@@ -574,13 +580,10 @@ export default function App() {
   };
 
   const recalculateActualQty = (notes: DeliveryNoteItem[]) => {
-    // Group by Item (SKU) and Designation Type
+    // Group by Item (SKU) only to ensure all items for same SKU are rounded together
     const groups = new Map<string, DeliveryNoteItem[]>();
     notes.forEach(item => {
-      // Use the existing loaiChiDinh if already set, otherwise determine it
-      const loai = item.loaiChiDinh || determineLoaiChiDinh(item.item, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode, '');
-      const isSLTOrder = (item.ovnSaleOrder || '').toUpperCase().startsWith('SLT');
-      const groupKey = `${item.item.trim().toUpperCase()}|${(loai || 'NORMAL').trim().toUpperCase()}|${isSLTOrder ? 'SLT' : 'NORMAL'}`;
+      const groupKey = item.item.trim().toUpperCase();
       if (!groups.has(groupKey)) groups.set(groupKey, []);
       groups.get(groupKey)!.push(item);
     });
@@ -4434,13 +4437,26 @@ export default function App() {
                           </tr>
                         ) : (
                           filteredDeliveryNotes.map((item, index) => {
+                             const isFirstInItemGroup = index === 0 || 
+                               (filteredDeliveryNotes[index - 1].item || '').trim().toUpperCase() !== (item.item || '').trim().toUpperCase();
+                             let itemGroupSize = 0;
+                             if (isFirstInItemGroup) {
+                               for (let i = index; i < filteredDeliveryNotes.length; i++) {
+                                 if (
+                                   (filteredDeliveryNotes[i].item || '').trim().toUpperCase() === (item.item || '').trim().toUpperCase()
+                                 ) {
+                                   itemGroupSize++;
+                                 } else {
+                                   break;
+                                 }
+                               }
+                             }
                             const isDesignationMatch = (remark: string, prodOrder: string, saleOrder: string, noCode: string) => {
                               if (!remark) return true;
-                              // Remove all whitespace and split by /
                               const codes = remark.replace(/\s+/g, '').toLowerCase().split('/');
-                              const targetRpro = prodOrder.replace(/\s+/g, '').toLowerCase();
-                              const targetSo = saleOrder.replace(/\s+/g, '').toLowerCase();
-                              const targetNo = noCode.replace(/\s+/g, '').toLowerCase();
+                              const targetRpro = (prodOrder || '').replace(/\s+/g, '').toLowerCase();
+                              const targetSo = (saleOrder || '').replace(/\s+/g, '').toLowerCase();
+                              const targetNo = (noCode || '').replace(/\s+/g, '').toLowerCase();
                               
                               return (targetRpro && codes.includes(targetRpro)) || 
                                      (targetSo && codes.includes(targetSo)) || 
@@ -4449,28 +4465,7 @@ export default function App() {
 
                             const hasMismatch = !isDesignationMatch(item.remark, item.ovnProductionOrder, item.ovnSaleOrder, item.noCode);
 
-                            // RowSpan logic: Group by ITEM, loaiChiDinh and SLT-ness
-                             const isSLT = (so: string) => (so || '').toUpperCase().startsWith('SLT');
-                             const currentIsSLT = isSLT(item.ovnSaleOrder);
-
-                             const isFirstInItemGroup = index === 0 || 
-                               filteredDeliveryNotes[index - 1].item !== item.item || 
-                               filteredDeliveryNotes[index - 1].loaiChiDinh !== item.loaiChiDinh ||
-                               isSLT(filteredDeliveryNotes[index - 1].ovnSaleOrder) !== currentIsSLT;
-                             let itemGroupSize = 0;
-                             if (isFirstInItemGroup) {
-                               for (let i = index; i < filteredDeliveryNotes.length; i++) {
-                                 if (
-                                   filteredDeliveryNotes[i].item === item.item && 
-                                   filteredDeliveryNotes[i].loaiChiDinh === item.loaiChiDinh &&
-                                   isSLT(filteredDeliveryNotes[i].ovnSaleOrder) === currentIsSLT
-                                 ) {
-                                   itemGroupSize++;
-                                 } else {
-                                   break;
-                                 }
-                               }
-                             }
+                            // Using SKU grouping above.
 
                             // Aggregate lots for the group
                             const getGroupedLots = (itemCode: string, startIndex: number, size: number) => {
