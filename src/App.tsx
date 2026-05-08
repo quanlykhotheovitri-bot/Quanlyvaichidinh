@@ -265,29 +265,39 @@ export default function App() {
     });
   }, []);
 
-  const checkOutboundRestriction = useCallback((batch: { ghiChu?: string, designationCode?: string }, orderContext: { saleOrder?: string, loaiChiDinh?: string }): string | null => {
+  const checkOutboundRestriction = useCallback((batch: { ghiChu?: string, designationCode?: string, loaiChiDinh?: string }, orderContext: { saleOrder?: string, loaiChiDinh?: string, prodOrder?: string }): string | null => {
     const note = (batch.ghiChu || '').toUpperCase();
     const designation = (batch.designationCode || '').toUpperCase();
-    const combined = note + ' ' + designation;
-    const saleOrder = (orderContext.saleOrder || '').toUpperCase();
+    const lotLoai = (batch.loaiChiDinh || '').toUpperCase();
+    const combined = `${note} ${designation} ${lotLoai}`;
+    
+    const saleOrder = (orderContext.saleOrder || '').trim().toUpperCase();
+    const prodOrder = (orderContext.prodOrder || '').trim().toUpperCase();
     
     const specialMarkers = ['SLT', 'RMW', 'KEEP'];
     const hasSpecialMarker = specialMarkers.some(marker => combined.includes(marker));
     
     // Rule: Don't allow special marker lots to be exported to non-matching orders
     if (hasSpecialMarker) {
-       const loaiChiDinh = (orderContext.loaiChiDinh || '').toUpperCase();
-       const isAllowedOrder = specialMarkers.some(marker => saleOrder.startsWith(marker));
-       const isAllowedDesignation = specialMarkers.some(marker => loaiChiDinh.startsWith(marker));
+       const orderLoai = (orderContext.loaiChiDinh || '').toUpperCase();
+       
+       const isAllowedBySaleOrder = specialMarkers.some(marker => saleOrder.startsWith(marker));
+       const isAllowedByDesignation = specialMarkers.some(marker => orderLoai.startsWith(marker));
 
-       if (!isAllowedOrder && !isAllowedDesignation) {
+       if (!isAllowedBySaleOrder && !isAllowedByDesignation) {
           return 'Lô hàng có ghi chú đặc biệt (SLT/RMW/KEEP) chỉ được phép xuất cho các đơn hàng có đầu mã tương ứng (SLT, RMW, KEEP).';
        }
     }
 
     // Rule: SLT orders ONLY take SLT lots (as requested)
-    if (saleOrder.startsWith('SLT') && !combined.includes('SLT')) {
-      return 'Đơn hàng SLT chỉ được phép xuất các lô hàng có ghi chú SLT trong tồn kho.';
+    // Updated: A lot is considered "SLT" if it has the SLT marker OR if it's explicitly designated for this SLT order/production
+    if (saleOrder.startsWith('SLT')) {
+      const hasSLTMarker = combined.includes('SLT');
+      const isExplicitMatch = (saleOrder && combined.includes(saleOrder)) || (prodOrder && combined.includes(prodOrder));
+      
+      if (!hasSLTMarker && !isExplicitMatch) {
+         return 'Đơn hàng SLT chỉ được phép xuất các lô hàng có ghi chú SLT hoặc được chỉ định đích danh cho đơn hàng này.';
+      }
     }
     
     return null;
@@ -320,8 +330,8 @@ export default function App() {
       const note = (m.ghiChu || '').toUpperCase();
       
       const restrictionError = checkOutboundRestriction(
-        { ghiChu: note, designationCode: designation },
-        { saleOrder: ovnSaleOrder, loaiChiDinh: currentLoai }
+        { ghiChu: note, designationCode: designation, loaiChiDinh: (m.loaiChiDinh || '').toUpperCase() },
+        { saleOrder: ovnSaleOrder, loaiChiDinh: currentLoai, prodOrder: (issueRow.rpro || '').toUpperCase() }
       );
       
       if (restrictionError) return false;
