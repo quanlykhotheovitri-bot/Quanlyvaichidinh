@@ -262,11 +262,12 @@ export default function App() {
     });
   }, []);
 
-  const checkOutboundRestriction = useCallback((batch: { ghiChu?: string, designationCode?: string, loaiChiDinh?: string }, orderContext: { saleOrder?: string, loaiChiDinh?: string, prodOrder?: string }): string | null => {
+  const checkOutboundRestriction = useCallback((batch: { lotNo?: string, ghiChu?: string, designationCode?: string, loaiChiDinh?: string }, orderContext: { saleOrder?: string, loaiChiDinh?: string, prodOrder?: string }): string | null => {
+    const lotNo = (batch.lotNo || '').toUpperCase();
     const note = (batch.ghiChu || '').toUpperCase();
     const designation = (batch.designationCode || '').toUpperCase();
     const lotLoai = (batch.loaiChiDinh || '').toUpperCase();
-    const combined = `${note} ${designation} ${lotLoai}`;
+    const combined = `${lotNo} ${note} ${designation} ${lotLoai}`;
     
     const saleOrder = (orderContext.saleOrder || '').trim().toUpperCase();
     const prodOrder = (orderContext.prodOrder || '').trim().toUpperCase();
@@ -329,7 +330,7 @@ export default function App() {
         const lotLoai = (m.loaiChiDinh || '').toUpperCase();
         
         const restrictionError = checkOutboundRestriction(
-          { ghiChu: note, designationCode: designation, loaiChiDinh: lotLoai },
+          { lotNo: m.lotNo, ghiChu: note, designationCode: designation, loaiChiDinh: lotLoai },
           { saleOrder: ovnSaleOrder, loaiChiDinh: currentLoai, prodOrder: currentProdOrder }
         );
         
@@ -709,7 +710,7 @@ export default function App() {
             );
 
             const restrictionError = checkOutboundRestriction(
-              { ghiChu: invMatch?.ghiChu, designationCode: invMatch?.designationCode },
+              { lotNo: lot.lotNo, ghiChu: invMatch?.ghiChu, designationCode: invMatch?.designationCode, loaiChiDinh: invMatch?.loaiChiDinh },
               { saleOrder: item.ovnSaleOrder, loaiChiDinh: item.loaiChiDinh }
             );
 
@@ -752,7 +753,7 @@ export default function App() {
             );
 
             const restrictionError = checkOutboundRestriction(
-              { ghiChu: invMatch?.ghiChu, designationCode: invMatch?.designationCode },
+              { lotNo: lotName, ghiChu: invMatch?.ghiChu, designationCode: invMatch?.designationCode, loaiChiDinh: invMatch?.loaiChiDinh },
               { saleOrder: item.ovnSaleOrder, loaiChiDinh: item.loaiChiDinh }
             );
 
