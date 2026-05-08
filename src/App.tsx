@@ -2490,7 +2490,6 @@ export default function App() {
           ...item,
           assignedLots: [],
           lotNo: '',
-          actualQty: 0,
           actualIssuedQty: 0,
           location: '',
           stock: 'Không tìm thấy tồn kho phù hợp theo chỉ định'
@@ -4535,7 +4534,7 @@ export default function App() {
                                         <div className="flex flex-col gap-1">
                                           {groupLots.map((lot, idx) => (
                                             <div key={idx} className={cn(idx > 0 && "border-t border-gray-200 pt-1")}>
-                                              {lot.lotNo} ({lot.qty.toLocaleString()})
+                                              {lot.lotNo} ({Math.round(lot.qty).toLocaleString()})
                                             </div>
                                           ))}
                                         </div>
@@ -4545,10 +4544,10 @@ export default function App() {
                                     </td>
                                     <td rowSpan={itemGroupSize} className="border border-[#141414] p-2 text-right font-mono align-middle bg-gray-50/50 text-blue-600 font-bold">
                                       {groupLots.length > 0 ? (
-                                        groupLots.reduce((sum, lot) => sum + lot.qty, 0).toLocaleString()
+                                        Math.round(groupLots.reduce((sum, lot) => sum + lot.qty, 0)).toLocaleString()
                                       ) : (
-                                        filteredDeliveryNotes.slice(index, index + itemGroupSize)
-                                          .reduce((sum, gi) => sum + (gi.actualQty || 0), 0).toLocaleString()
+                                        Math.round(filteredDeliveryNotes.slice(index, index + itemGroupSize)
+                                          .reduce((sum, gi) => sum + (gi.actualQty || 0), 0)).toLocaleString()
                                       )}
                                     </td>
                                   </>
