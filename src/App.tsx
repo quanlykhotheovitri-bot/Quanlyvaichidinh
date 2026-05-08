@@ -258,10 +258,7 @@ export default function App() {
   const resolveByPriority3 = useCallback((sku: string, inventoryRows: InventoryItem[]) => {
     return inventoryRows.filter(item => {
       const itemSku = item.sku.toLowerCase().trim();
-      if (itemSku !== sku) return false;
-      
-      const designationCode = (item.designationCode || '').trim();
-      return designationCode === '';
+      return itemSku === sku;
     });
   }, []);
 
@@ -275,22 +272,33 @@ export default function App() {
     const prodOrder = (orderContext.prodOrder || '').trim().toUpperCase();
     
     const specialMarkers = ['SLT', 'RMW', 'KEEP'];
-    const hasSpecialMarker = specialMarkers.some(marker => combined.includes(marker));
+    const activeMarkers = specialMarkers.filter(marker => combined.includes(marker));
     
     // Rule: Don't allow special marker lots to be exported to non-matching orders
-    if (hasSpecialMarker) {
+    if (activeMarkers.length > 0) {
+       // Requirement: If lot has SLT marker, Sale Order MUST start with SLT
+       if (activeMarkers.includes('SLT')) {
+          if (!saleOrder.startsWith('SLT')) {
+             return 'Lô hàng có ghi chú SLT chỉ được phép xuất cho các đơn hàng bắt đầu bằng mã SLT.';
+          }
+       }
+
        const orderLoai = (orderContext.loaiChiDinh || '').toUpperCase();
        
-       const isAllowedBySaleOrder = specialMarkers.some(marker => saleOrder.startsWith(marker));
-       const isAllowedByDesignation = specialMarkers.some(marker => orderLoai.startsWith(marker));
+       // For other markers (RMW, KEEP), we allow matching by sale order prefix, loai chi dinh prefix or explicit ID
+       const otherMarkers = activeMarkers.filter(m => m !== 'SLT');
+       if (otherMarkers.length > 0) {
+          const matchesBySaleOrder = otherMarkers.some(marker => saleOrder.startsWith(marker));
+          const matchesByDesignation = otherMarkers.some(marker => orderLoai.startsWith(marker));
+          const isExplicitMatch = (saleOrder && combined.includes(saleOrder)) || (prodOrder && combined.includes(prodOrder));
 
-       if (!isAllowedBySaleOrder && !isAllowedByDesignation) {
-          return 'Lô hàng có ghi chú đặc biệt (SLT/RMW/KEEP) chỉ được phép xuất cho các đơn hàng có đầu mã tương ứng (SLT, RMW, KEEP).';
+          if (!matchesBySaleOrder && !matchesByDesignation && !isExplicitMatch) {
+             return `Lô hàng có ghi chú đặc biệt [${otherMarkers.join('/')}] chỉ được phép xuất cho các đơn hàng tương ứng.`;
+          }
        }
     }
 
     // Rule: SLT orders ONLY take SLT lots (as requested)
-    // Updated: A lot is considered "SLT" if it has the SLT marker OR if it's explicitly designated for this SLT order/production
     if (saleOrder.startsWith('SLT')) {
       const hasSLTMarker = combined.includes('SLT');
       const isExplicitMatch = (saleOrder && combined.includes(saleOrder)) || (prodOrder && combined.includes(prodOrder));
