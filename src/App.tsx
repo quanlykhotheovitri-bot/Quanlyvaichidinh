@@ -1280,8 +1280,38 @@ export default function App() {
         });
         
         if (allLots.length > 0) {
+          // Applying Largest Remainder Method for rounded sum matching
+          const totalExact = allLots.reduce((sum, l) => sum + l.qty, 0);
+          const targetTotal = Math.round(totalExact);
+          
+          const initialRounded = allLots.map(l => ({
+            lotNo: l.lotNo,
+            roundedQty: Math.floor(l.qty),
+            fraction: l.qty - Math.floor(l.qty)
+          }));
+          
+          let currentSum = initialRounded.reduce((sum, l) => sum + l.roundedQty, 0);
+          let difference = targetTotal - currentSum;
+          
+          if (difference > 0) {
+            initialRounded.sort((a, b) => b.fraction - a.fraction);
+            for (let i = 0; i < difference; i++) {
+              initialRounded[i % initialRounded.length].roundedQty += 1;
+            }
+          } else if (difference < 0) {
+            initialRounded.sort((a, b) => a.fraction - b.fraction);
+            for (let i = 0; i < Math.abs(difference); i++) {
+              initialRounded[i % initialRounded.length].roundedQty -= 1;
+            }
+          }
+          
+          allLots.forEach(l => {
+            const r = initialRounded.find(ir => ir.lotNo === l.lotNo);
+            if (r) l.qty = r.roundedQty;
+          });
+
           groupLotsStr = allLots.map(l => `${l.lotNo} (${l.qty.toLocaleString()})`).join('\n');
-          groupTotalIssuedQty = allLots.reduce((sum, l) => sum + l.qty, 0);
+          groupTotalIssuedQty = targetTotal;
         } else {
           groupLotsStr = item.lotNo || '';
           groupTotalIssuedQty = currentGroupItems.reduce((sum, gi) => sum + (gi.actualQty || 0), 0);
@@ -4511,6 +4541,42 @@ export default function App() {
                                   });
                                 }
                               });
+
+                              if (allLots.length > 0) {
+                                const totalExact = allLots.reduce((sum, l) => sum + l.qty, 0);
+                                const targetTotal = Math.round(totalExact);
+                                
+                                // Apply Largest Remainder Method to ensure sum of rounded quantities equals rounded sum
+                                const initialRounded = allLots.map(l => ({
+                                  lotNo: l.lotNo,
+                                  roundedQty: Math.floor(l.qty),
+                                  fraction: l.qty - Math.floor(l.qty)
+                                }));
+                                
+                                let currentSum = initialRounded.reduce((sum, l) => sum + l.roundedQty, 0);
+                                let difference = targetTotal - currentSum;
+                                
+                                if (difference > 0) {
+                                  initialRounded.sort((a, b) => b.fraction - a.fraction);
+                                  for (let i = 0; i < difference; i++) {
+                                    initialRounded[i % initialRounded.length].roundedQty += 1;
+                                  }
+                                } else if (difference < 0) {
+                                  initialRounded.sort((a, b) => a.fraction - b.fraction);
+                                  for (let i = 0; i < Math.abs(difference); i++) {
+                                    initialRounded[i % initialRounded.length].roundedQty -= 1;
+                                  }
+                                }
+                                
+                                // Sync back to allLots
+                                allLots.forEach(l => {
+                                  const r = initialRounded.find(ir => ir.lotNo === l.lotNo);
+                                  if (r) {
+                                    l.qty = r.roundedQty;
+                                  }
+                                });
+                              }
+
                               return allLots;
                             };
 
