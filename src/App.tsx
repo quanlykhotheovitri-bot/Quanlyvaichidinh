@@ -67,7 +67,7 @@ export default function App() {
   const [locationEntries, setLocationEntries] = useState<LocationEntry[]>([]);
   const [locationInventoryEntries, setLocationInventoryEntries] = useState<LocationEntry[]>([]);
   const [deliveryNotes, setDeliveryNotes] = useState<DeliveryNoteItem[]>([]);
-  const [savedDeliveryNotes, setSavedDeliveryNotes] = useState<{id: string, date: string, items: DeliveryNoteItem[]}[]>([]);
+  const [savedDeliveryNotes, setSavedDeliveryNotes] = useState<{id: string, date: string, dept: string, items: DeliveryNoteItem[]}[]>([]);
   const [deliveryNoteHeader, setDeliveryNoteHeader] = useState({
     documentCode: 'WH.F-004/P-01',
     dept: 'SX 5',
@@ -792,6 +792,7 @@ export default function App() {
       const newSavedNote = {
         id: generateId(),
         date: today,
+        dept: deliveryNoteHeader.dept,
         items: [...deliveryNotes]
       };
 
@@ -4814,7 +4815,7 @@ export default function App() {
                               <FileText size={20} />
                             </div>
                             <div>
-                              <p className="font-bold text-lg">Phiếu ngày: {note.date}</p>
+                              <p className="font-bold text-lg">Phiếu ngày: {note.date} ({note.dept})</p>
                               <div className="flex gap-4 text-xs opacity-60 mt-1">
                                 <span>Số lượng dòng: {note.items.length}</span>
                                 <span>ID: {note.id.slice(0, 8)}...</span>

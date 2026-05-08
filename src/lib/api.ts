@@ -753,14 +753,17 @@ export const api = {
     }
   },
   savedDeliveryNotes: {
-    async getAll(): Promise<{id: string, date: string, items: DeliveryNoteItem[]}[]> {
+    async getAll(): Promise<{id: string, date: string, dept: string, items: DeliveryNoteItem[]}[]> {
       try {
         const data = await fetchAll<any>('saved_delivery_notes');
         
-        const mappedData = data as {id: string, date: string, items: DeliveryNoteItem[]}[];
+        const mappedData = (data || []).map(note => ({
+          ...note,
+          dept: note.dept || 'SX 5'
+        })) as {id: string, date: string, dept: string, items: DeliveryNoteItem[]}[];
 
         // Smart Cache Merge
-        const cached = getCache<{id: string, date: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes');
+        const cached = getCache<{id: string, date: string, dept: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes');
         if ((!mappedData || mappedData.length === 0) && cached && cached.length > 0) {
           console.warn('Server returned empty saved delivery notes, preserving local cache');
           return cached;
@@ -770,12 +773,12 @@ export const api = {
         return mappedData;
       } catch (err: any) {
         console.warn('Offline mode: using cached saved delivery notes', err.message);
-        const cached = getCache<{id: string, date: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes');
+        const cached = getCache<{id: string, date: string, dept: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes');
         if (cached) return cached;
         throw err;
       }
     },
-    async upsert(note: {id: string, date: string, items: DeliveryNoteItem[]}): Promise<void> {
+    async upsert(note: {id: string, date: string, dept: string, items: DeliveryNoteItem[]}): Promise<void> {
       updateCacheSingle('saved_delivery_notes', note);
       try {
         const { error } = await supabase.from('saved_delivery_notes').upsert(note);
@@ -784,7 +787,7 @@ export const api = {
         console.warn('Offline mode: saved delivery note upsert saved locally');
       }
     },
-    async upsertAll(notes: {id: string, date: string, items: DeliveryNoteItem[]}[]): Promise<void> {
+    async upsertAll(notes: {id: string, date: string, dept: string, items: DeliveryNoteItem[]}[]): Promise<void> {
       setCache('saved_delivery_notes', notes, 30 * 24 * 3600000);
       try {
         const { error } = await supabase.from('saved_delivery_notes').upsert(notes);
@@ -794,7 +797,7 @@ export const api = {
       }
     },
     async delete(id: string): Promise<void> {
-      const currentNotes = getCache<{id: string, date: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes') || [];
+      const currentNotes = getCache<{id: string, date: string, dept: string, items: DeliveryNoteItem[]}[]>('saved_delivery_notes') || [];
       setCache('saved_delivery_notes', currentNotes.filter(n => n.id !== id), 30 * 24 * 3600000);
       
       const { error } = await supabase.from('saved_delivery_notes').delete().eq('id', id);
