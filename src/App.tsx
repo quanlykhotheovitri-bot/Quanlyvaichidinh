@@ -276,24 +276,27 @@ export default function App() {
     const specialMarkers = ['SLT', 'RMW', 'KEEP'];
     const activeMarkers = specialMarkers.filter(marker => combined.includes(marker));
     
-    // Specific check for markers in combined string (note, designation, loai)
-    const hasMarker = (m: string) => combined.includes(m);
+    const isExplicitMatch = (saleOrder && combined.includes(saleOrder)) || (prodOrder && combined.includes(prodOrder));
 
     // Rule: Don't allow special marker lots to be exported to non-matching orders
     if (activeMarkers.length > 0) {
-       // Requirement: If lot has SLT marker, Sale Order MUST start with SLT OR Loai Chi Dinh is SLT
+       // Requirement: If OVN Sale Order is empty, strictly exclude lots with special markers unless it's an explicit match
+       if (!saleOrder && !isExplicitMatch) {
+          return `Lô hàng có ghi chú đặc biệt [${activeMarkers.join('/')}] không được phép xuất khi OVN Sale Order trống.`;
+       }
+
+       // Requirement: If lot has SLT marker, matching logic
        if (activeMarkers.includes('SLT')) {
-          if (!saleOrder.startsWith('SLT') && orderLoai !== 'SLT') {
+          if (!saleOrder.startsWith('SLT') && orderLoai !== 'SLT' && !isExplicitMatch) {
              return 'Lô hàng có ghi chú SLT chỉ được phép xuất cho các đơn hàng SLT.';
           }
        }
 
-       // For other markers (RMW, KEEP), we allow matching by sale order prefix, loai chi dinh prefix or explicit ID
+       // For other markers (RMW, KEEP)
        const otherMarkers = activeMarkers.filter(m => m !== 'SLT');
        if (otherMarkers.length > 0) {
           const matchesBySaleOrder = otherMarkers.some(marker => saleOrder.startsWith(marker));
           const matchesByDesignation = otherMarkers.some(marker => orderLoai.startsWith(marker));
-          const isExplicitMatch = (saleOrder && combined.includes(saleOrder)) || (prodOrder && combined.includes(prodOrder));
 
           if (!matchesBySaleOrder && !matchesByDesignation && !isExplicitMatch) {
              return `Lô hàng có ghi chú đặc biệt [${otherMarkers.join('/')}] chỉ được phép xuất cho các đơn hàng tương ứng.`;
@@ -303,9 +306,7 @@ export default function App() {
 
     // Rule: SLT orders ONLY take SLT lots (as requested)
     if (saleOrder.startsWith('SLT') || orderLoai === 'SLT') {
-      const hasSLTMarker = hasMarker('SLT');
-      const isExplicitMatch = (saleOrder && combined.includes(saleOrder)) || (prodOrder && combined.includes(prodOrder));
-      
+      const hasSLTMarker = combined.includes('SLT');
       if (!hasSLTMarker && !isExplicitMatch) {
          return 'Đơn hàng SLT chỉ được phép xuất các lô hàng có ghi chú SLT hoặc được chỉ định đích danh.';
       }
