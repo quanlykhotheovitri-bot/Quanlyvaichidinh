@@ -576,14 +576,31 @@ export default function App() {
     if (upSO.startsWith('RMW')) return 'RMW';
     if (upSO.startsWith('KEEP')) return 'KEEP';
 
-    const match = inventory.find(inv => 
-      inv.sku.toLowerCase().trim() === itemCode.toLowerCase().trim() && 
-      (
-        (prodOrder && (inv.designationCode || '').toLowerCase().includes(prodOrder.toLowerCase().trim())) ||
-        (saleOrder && (inv.designationCode || '').toLowerCase().includes(saleOrder.toLowerCase().trim())) ||
-        (noCode && (inv.designationCode || '').toLowerCase().includes(noCode.toLowerCase().trim()))
-      )
+    const cleanItemCode = itemCode.toLowerCase().trim();
+    const cleanProd = (prodOrder || '').toLowerCase().trim();
+    const cleanSO = (saleOrder || '').toLowerCase().trim();
+    const cleanNo = (noCode || '').toLowerCase().trim();
+
+    // Prioritized Matching: 1. Prod Order, 2. Sale Order, 3. No Code
+    let match = inventory.find(inv => 
+      inv.sku.toLowerCase().trim() === cleanItemCode && 
+      cleanProd && (inv.designationCode || '').toLowerCase().includes(cleanProd)
     );
+
+    if (!match) {
+      match = inventory.find(inv => 
+        inv.sku.toLowerCase().trim() === cleanItemCode && 
+        cleanSO && (inv.designationCode || '').toLowerCase().includes(cleanSO)
+      );
+    }
+
+    if (!match) {
+      match = inventory.find(inv => 
+        inv.sku.toLowerCase().trim() === cleanItemCode && 
+        cleanNo && (inv.designationCode || '').toLowerCase().includes(cleanNo)
+      );
+    }
+
     return match?.loaiChiDinh || 'NORMAL';
   };
 
@@ -712,7 +729,7 @@ export default function App() {
 
             const restrictionError = checkOutboundRestriction(
               { lotNo: lot.lotNo, ghiChu: invMatch?.ghiChu, designationCode: invMatch?.designationCode, loaiChiDinh: invMatch?.loaiChiDinh },
-              { saleOrder: item.ovnSaleOrder, loaiChiDinh: item.loaiChiDinh }
+              { saleOrder: item.ovnSaleOrder, loaiChiDinh: item.loaiChiDinh, prodOrder: item.ovnProductionOrder }
             );
 
             if (restrictionError) {
@@ -755,7 +772,7 @@ export default function App() {
 
             const restrictionError = checkOutboundRestriction(
               { lotNo: lotName, ghiChu: invMatch?.ghiChu, designationCode: invMatch?.designationCode, loaiChiDinh: invMatch?.loaiChiDinh },
-              { saleOrder: item.ovnSaleOrder, loaiChiDinh: item.loaiChiDinh }
+              { saleOrder: item.ovnSaleOrder, loaiChiDinh: item.loaiChiDinh, prodOrder: item.ovnProductionOrder }
             );
 
             if (restrictionError) {
@@ -1654,8 +1671,8 @@ export default function App() {
       );
 
       const restrictionError = checkOutboundRestriction(
-        { ghiChu: sourceBatch?.ghiChu, designationCode: sourceBatch?.designationCode },
-        { loaiChiDinh: updatedTransaction.loaiChiDinh }
+        { lotNo: updatedTransaction.lotNo, ghiChu: sourceBatch?.ghiChu, designationCode: sourceBatch?.designationCode, loaiChiDinh: sourceBatch?.loaiChiDinh },
+        { loaiChiDinh: updatedTransaction.loaiChiDinh, prodOrder: updatedTransaction.rpro }
       );
 
       if (restrictionError) {
